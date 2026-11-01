@@ -86,7 +86,7 @@ export async function joinMatchmakingQueue(
   userId: string, entry: Omit<MatchmakingEntry, 'joinedAt' | 'status'>,
 ) {
   const { firestore: db } = initializeFirebase();
-  if (!db) return;
+  if (!db) throw new Error('Matchmaking is unavailable because the database is not configured.');
   await setDoc(doc(db, 'matchmaking', userId), {
     ...entry,
     joinedAt: serverTimestamp(),
@@ -96,7 +96,7 @@ export async function joinMatchmakingQueue(
 
 export async function leaveMatchmakingQueue(userId: string) {
   const { firestore: db } = initializeFirebase();
-  if (!db) return;
+  if (!db) throw new Error('Matchmaking is unavailable because the database is not configured.');
   await deleteDoc(doc(db, 'matchmaking', userId));
 }
 
@@ -120,16 +120,18 @@ export async function findMatch(
   userId: string, settings: ArenaSettings,
 ): Promise<MatchmakingEntry | null> {
   const { firestore: db } = initializeFirebase();
-  if (!db) return null;
+  if (!db) throw new Error('Matchmaking is unavailable because the database is not configured.');
   const userSnap = await getDoc(doc(db, 'users', userId));
   if (!userSnap.exists()) return null;
   const userData = userSnap.data();
-  const userRating = userData.rating || 800;
+  if (typeof userData.rating !== 'number') {
+    throw new Error('Your account profile has no verified rating yet.');
+  }
+  const userRating = userData.rating;
 
   const minRating = Math.max(0, userRating - settings.eloRange);
   const maxRating = userRating + settings.eloRange;
-  const q = query(
-    collection(db, 'matchmaking'),
+  const filters = [
     where('status', '==', 'searching'),
     where('rated', '==', settings.rated),
     where('difficulty', '==', settings.difficulty),
@@ -137,17 +139,15 @@ export async function findMatch(
     where('preferredLanguage', '==', settings.preferredLanguage),
     where('rating', '>=', minRating),
     where('rating', '<=', maxRating),
-    limit(1),
-  );
+  ];
+  if (settings.category !== 'all') filters.push(where('category', '==', settings.category));
+  if (settings.region !== 'auto') filters.push(where('region', '==', settings.region));
+  const q = query(collection(db, 'matchmaking'), ...filters, limit(10));
   const snap = await getDocs(q);
-  const candidates = snap.docs
-    .filter((d: QueryDocumentSnapshot<DocumentData>) => d.id !== userId)
-    .map((d: QueryDocumentSnapshot<DocumentData>) => ({ userId: d.id, ...d.data() } as MatchmakingEntry));
-
-  if (candidates.length > 0) {
-    return candidates[0];
-  }
-  return null;
+  const candidate = snap.docs.find((d: QueryDocumentSnapshot<DocumentData>) => d.id !== userId);
+  return candidate
+    ? ({ userId: candidate.id, ...candidate.data() } as MatchmakingEntry)
+    : null;
 }
 
 export async function fetchBattle(battleId: string): Promise<BattleDocument | null> {
@@ -279,18 +279,35 @@ export async function sendRoomInvite(
   fromUserId: string, fromUsername: string, toUserId: string,
   roomId: string, roomCode: string,
 ) {
-  const { firestore: db } = initializeFirebase();
-  if (!db) return;
-  await addDoc(collection(db, 'invites'), {
-    roomId, roomCode, fromUserId, fromUsername, toUserId,
-    status: 'pending', createdAt: serverTimestamp(),
+  const { auth } = initializeFirebase();
+  const user = auth?.currentUser;
+  if (!user || user.uid !== fromUserId) throw new Error('You must be signed in to send an invite.');
+  const token = await user.getIdToken();
+  const response = await fetch('/api/rooms/invite', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ roomId, roomCode, toUserId }),
   });
+  if (!response.ok) {
+    const result = await response.json().catch(() => ({}));
+    throw new Error(result.error || 'Unable to send room invite.');
+  }
 }
 
 export async function respondToInvite(inviteId: string, status: 'accepted' | 'declined') {
-  const { firestore: db } = initializeFirebase();
-  if (!db) return;
-  await updateDoc(doc(db, 'invites', inviteId), { status, updatedAt: serverTimestamp() });
+  const { auth } = initializeFirebase();
+  const user = auth?.currentUser;
+  if (!user) throw new Error('You must be signed in to respond to an invitation.');
+  const token = await user.getIdToken();
+  const response = await fetch('/api/rooms/invite/respond', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ inviteId, status }),
+  });
+  if (!response.ok) {
+    const result = await response.json().catch(() => ({}));
+    throw new Error(result.error || 'Unable to respond to invitation.');
+  }
 }
 
 export function subscribeInvites(
@@ -323,15 +340,10 @@ export async function fetchActiveBattleCount(userId?: string): Promise<number> {
 }
 
 export async function fetchOnlinePlayerCount(): Promise<number> {
-  const { firestore: db } = initializeFirebase();
-  if (!db) return 0;
-  const q = query(
-    collection(db, 'users'),
-    where('onlineStatus', '==', 'online'),
-    limit(1000),
-  );
-  const snap = await getDocs(q);
-  return snap.size;
+  const response = await fetch('/api/public/stats', { cache: 'no-store' });
+  if (!response.ok) throw new Error('Unable to fetch online player count.');
+  const data = await response.json();
+  return typeof data.onlinePlayers === 'number' ? data.onlinePlayers : 0;
 }
 
 function calculateNewRating(rating: number, opponentRating: number, score: number): number {

@@ -1,10 +1,11 @@
 'use client';
 
-import { Card, CardContent } from '@/components/ui/card';
+import { CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Zap, CheckCircle2, Gift, Calendar, TrendingUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import Link from 'next/link';
 
 interface DailyChallengeCardProps {
   daily: { date: string; problemId: string; xpBonus: number } | null;
@@ -50,14 +51,15 @@ export function DailyChallengeCard({
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       <div className="md:col-span-2">
-        <div
-          className={cn(
-            'relative rounded-lg border transition-colors',
-            dailyCompleted
-              ? 'border-emerald-500/20 bg-emerald-500/[0.03]'
-              : 'border-border',
-          )}
-        >
+        {daily ? (
+          <div
+            className={cn(
+              'relative rounded-lg border transition-colors',
+              dailyCompleted
+                ? 'border-emerald-500/20 bg-emerald-500/[0.03]'
+                : 'border-border',
+            )}
+          >
           <CardContent className="p-5">
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-2">
@@ -79,7 +81,7 @@ export function DailyChallengeCard({
 
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant="outline" className="text-xs gap-1 py-0.5 border-primary/20">
-                    <Zap className="w-3 h-3 text-primary" /> +{daily?.xpBonus || 50} XP Bonus
+                    <Zap className="w-3 h-3 text-primary" /> +{daily.xpBonus} XP Bonus
                   </Badge>
                   {dailyCompleted && !dailyClaimed && (
                     <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 text-xs py-0.5 gap-1">
@@ -111,11 +113,23 @@ export function DailyChallengeCard({
               </div>
             </div>
           </CardContent>
-        </div>
+          </div>
+        ) : (
+          <div className="flex h-full flex-col items-start justify-between gap-4 rounded-lg border border-border bg-card/30 p-5 sm:flex-row sm:items-center">
+            <div>
+              <p className="text-xs text-muted-foreground">Daily challenge</p>
+              <p className="mt-1 font-medium">No challenge is scheduled today.</p>
+              <p className="mt-1 text-sm text-muted-foreground">Check verified daily missions for available goals.</p>
+            </div>
+            <Button asChild size="sm" variant="outline">
+              <Link href="/missions">View daily missions</Link>
+            </Button>
+          </div>
+        )}
       </div>
 
       <div className="rounded-lg border border-border bg-card/30 overflow-hidden">
-        <CardContent className="p-5">
+        {weekly ? <CardContent className="p-5">
           <div className="space-y-3">
             <div className="flex items-center gap-2.5">
               <div className="w-9 h-9 rounded-lg bg-secondary/10 flex items-center justify-center">
@@ -166,7 +180,13 @@ export function DailyChallengeCard({
               )}
             </div>
           </div>
-        </CardContent>
+        </CardContent> : (
+          <CardContent className="p-5">
+            <p className="text-xs text-muted-foreground">Weekly challenge</p>
+            <p className="mt-1 font-medium">No weekly challenge is scheduled.</p>
+            <p className="mt-1 text-sm text-muted-foreground">A weekly set will appear here when published.</p>
+          </CardContent>
+        )}
       </div>
     </div>
   );

@@ -92,19 +92,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid battle problem' }, { status: 400 });
     }
 
-    // Fetch the full (hidden) test cases server-side from problemContent.
-    let testCases: Array<{ input: string; expected: string }> = [];
-    const contentSnap = await db.collection('problemContent').doc(problem.id).get();
-    const rawCases = contentSnap.exists
-      ? (contentSnap.data()!.testCases as TestCase[] | undefined) || []
-      : (problem.testCases as TestCase[] | undefined) || [];
-    if (rawCases.length === 0 && Array.isArray(problem.visibleTests)) {
-      rawCases.push(...problem.visibleTests);
-    }
+    // Rated results must use server-only test cases; public problem content is not authoritative.
+    const secretsSnap = await db.collection('problemSecrets').doc(problem.id).get();
+    const rawCases = secretsSnap.exists
+      ? (secretsSnap.data()!.testCases as TestCase[] | undefined) || []
+      : [];
     if (rawCases.length === 0) {
-      return NextResponse.json({ error: 'Problem has no test cases' }, { status: 500 });
+      return NextResponse.json({ error: 'Secure judge test cases are not configured for this problem' }, { status: 503 });
     }
-    testCases = convertBattleTestCases(rawCases);
+    const testCases = convertBattleTestCases(rawCases);
 
     // Judge OUTSIDE the transaction: no I/O allowed inside runTransaction.
     const { passed, total } = await executeBattleCode(

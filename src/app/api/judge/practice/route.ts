@@ -48,26 +48,24 @@ export async function POST(request: NextRequest) {
     const db = getAdminFirestore();
 
     // Authoritative test cases live server-side; the client never supplies them.
-    const [metaSnap, userSnap, secretsSnap, contentSnap] = await Promise.all([
+    const [metaSnap, userSnap, secretsSnap] = await Promise.all([
       db.collection('problems').doc(problemId).get(),
       db.collection('users').doc(uid).get(),
-      db.collection('problemSecrets').doc(problemId).get().catch(() => null),
-      db.collection('problemContent').doc(problemId).get(),
+      db.collection('problemSecrets').doc(problemId).get(),
     ]);
 
-    const source = (secretsSnap?.exists && (secretsSnap.data()?.testCases as any)?.length > 0)
-      ? secretsSnap.data()!
-      : contentSnap.exists ? contentSnap.data()! : null;
     if (userSnap.exists && userSnap.data()?.banned === true) {
       return NextResponse.json({ error: 'Account banned' }, { status: 403 });
     }
-    const rawTestCases: Array<{ input?: string; expected?: string; isHidden?: boolean }> =
-      (source?.testCases as any) || [];
-    if (rawTestCases.length === 0) {
-      return NextResponse.json({ error: 'Problem has no test cases' }, { status: 400 });
+    const meta = metaSnap.data();
+    if (!metaSnap.exists || meta?.isPublished !== true) {
+      return NextResponse.json({ error: 'Published problem not found' }, { status: 404 });
     }
-
-    const meta = metaSnap.data() || {};
+    const rawTestCases: Array<{ input?: string; expected?: string; isHidden?: boolean }> =
+      Array.isArray(secretsSnap.data()?.testCases) ? secretsSnap.data()!.testCases : [];
+    if (rawTestCases.length === 0) {
+      return NextResponse.json({ error: 'Secure judge test cases are not configured for this problem' }, { status: 503 });
+    }
 
     const judgeResult = await executeTestCases(
       code,
@@ -97,7 +95,7 @@ export async function POST(request: NextRequest) {
       codeSize: judgeResult.codeSize ?? null,
       submittedAt: FieldValue.serverTimestamp(),
     };
-    submissionRef.set(submissionData);
+    await submissionRef.set(submissionData);
 
     const result = await db.runTransaction(async (tx) => {
       const [ppSnap, progSnap, userSnapTx] = await Promise.all([

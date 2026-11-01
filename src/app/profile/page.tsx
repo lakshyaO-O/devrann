@@ -1,255 +1,290 @@
 'use client';
 
-import React from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Progress } from '@/components/ui/progress';
-import { Button } from '@/components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  Zap, Trophy, BookOpen, Target, Medal, Edit3, Loader2,
-  Activity, Gift, Flame, Star, CheckCircle2, Sword, Sparkles,
-  GraduationCap, Swords, TrendingUp,
-} from 'lucide-react';
-import { cn, getTier, getTierColor } from '@/lib/utils';
+import { Activity, ArrowUpRight, Check, Code2, Flame, Loader2, Medal, Share2, Target, Trophy } from 'lucide-react';
+import { initializeFirebase } from '@/firebase';
+import { calculateSubmissionStreak } from '@/lib/profile-stats';
 import { useUser } from '@/firebase/auth/use-user';
-import { useDoc } from '@/firebase/firestore/use-doc';
-import { useAppStore } from '@/store/app-store';
-import { DailyLoginRewards } from '@/components/gamification/DailyLoginRewards';
-import { ShareAchievement } from '@/components/social/ShareAchievement';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
+
+interface ProfileActivity {
+  profile: {
+    username: string;
+    photoURL: string;
+    bio: string;
+    interests: string[];
+    createdAt: string | null;
+    isProfilePublic: boolean;
+    rating: number | null;
+    highestRating: number | null;
+    wins: number;
+    losses: number;
+    draws: number;
+  };
+  practice: {
+    solved: number;
+    attempted: number;
+    submissions: number;
+    difficulty: { Easy: number; Medium: number; Hard: number };
+    topics: Record<string, { solved: number }>;
+  };
+  recentSubmissions: Array<{
+    id: string;
+    problemId: string;
+    verdict: string;
+    language: string;
+    submittedAt: string | null;
+    executionTimeMs?: number;
+  }>;
+  activity: Record<string, number>;
+  activityTruncated: boolean;
+  ratingHistory: Array<{ matchId: string; timestamp: string | null; rating: number | null; change: number }>;
+  matchHistory: Array<{
+    id: string;
+    opponent: string;
+    result: string;
+    ratingChange: number | null;
+    timestamp: string | null;
+    problemTitle: string;
+  }>;
+}
+
+function useProfileActivity(uid: string | undefined) {
+  const [data, setData] = useState<ProfileActivity | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async () => {
+    if (!uid) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      const { auth } = initializeFirebase();
+      const user = auth?.currentUser;
+      if (!user || user.uid !== uid) throw new Error('Sign in to view your profile activity.');
+      const token = await user.getIdToken();
+      const response = await fetch('/api/profile/me', {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store',
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Unable to load your profile activity.');
+      setData(result as ProfileActivity);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to load your profile activity.');
+    } finally {
+      setLoading(false);
+    }
+  }, [uid]);
+
+  useEffect(() => { void load(); }, [load]);
+  return { data, loading, error, retry: load };
+}
 
 export default function ProfilePage() {
   const { user, loading: authLoading } = useUser();
   const router = useRouter();
-  const { data: profile, loading: profileLoading } = useDoc(user ? `users/${user.uid}` : null);
-  const { state } = useAppStore();
-  const beginner = state?.beginner || { name: '', xp: 0, streak: 0, lessonsCompleted: [] };
+  const { data, loading, error, retry } = useProfileActivity(user?.uid);
+  const [copied, setCopied] = useState(false);
+  const [shareError, setShareError] = useState('');
 
-  const loading = authLoading || profileLoading;
+  const shareProfile = async () => {
+    if (!data?.profile.username || !data.profile.isProfilePublic) return;
+    const url = `${window.location.origin}/u/${encodeURIComponent(data.profile.username)}`;
+    try {
+      if (navigator.share) await navigator.share({ title: `${data.profile.username} on DevRann`, url });
+      else {
+        await navigator.clipboard.writeText(url);
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1800);
+      }
+    } catch (cause) {
+      if (cause instanceof Error && cause.name === 'AbortError') return;
+      setShareError('Unable to share your profile. Copy the profile URL from your browser.');
+    }
+  };
 
-  const stats = profile || {};
-  const tier = getTier(stats.rating || 1200);
+  if (authLoading || loading) {
+    return <div className="flex min-h-[50vh] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
+  }
 
-  const initials = (stats.username || user?.displayName || user?.email || beginner.name || '?')
-    .split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2);
-
-  const winRate = (stats.wins + stats.losses) > 0
-    ? Math.round((stats.wins / (stats.wins + stats.losses)) * 100)
-    : 0;
-
-  const lessonCount = beginner.lessonsCompleted.length;
-  const currentLevel = Math.floor(beginner.xp / 500) + 1;
-  const xpInLevel = beginner.xp % 500;
-  const xpProgress = (xpInLevel / 500) * 100;
-
-  if (loading) {
+  if (error || !data) {
     return (
-      <div className="flex items-center justify-center h-[50vh]">
-        <Loader2 className="w-12 h-12 text-primary animate-spin" />
+      <div className="mx-auto max-w-xl rounded-lg border border-border p-8 text-center">
+        <p className="text-sm text-muted-foreground">{error || 'Profile activity is unavailable.'}</p>
+        <Button className="mt-4" variant="outline" onClick={() => void retry()}>Retry</Button>
       </div>
     );
   }
 
+  const { profile, practice } = data;
+  const displayName = profile.username || user?.displayName || 'Coder';
+  const initials = displayName.slice(0, 2).toUpperCase();
+  const games = profile.wins + profile.losses + profile.draws;
+  const winRate = games ? Math.round((profile.wins / games) * 100) : null;
+  const strongestTopics = Object.entries(practice.topics)
+    .sort(([, a], [, b]) => b.solved - a.solved)
+    .slice(0, 8);
+
   return (
-    <div className="space-y-8">
-        {/* Profile Header */}
-        <div className="relative glass-panel p-6 md:p-8 overflow-hidden">
-          <div className="pointer-events-none absolute -top-24 -right-24 w-72 h-72 bg-primary/10 rounded-full blur-[100px]" />
-          <div className="pointer-events-none absolute bottom-0 left-1/3 w-64 h-64 bg-secondary/5 rounded-full blur-[100px]" />
-          <CardContent className="p-0">
-            <div className="relative flex flex-col md:flex-row items-start md:items-center gap-6">
-              <div className="relative">
-                <div className="absolute inset-0 rounded-full bg-gradient-to-br from-primary/40 to-secondary/20 blur-md" aria-hidden />
-                <Avatar className="relative w-24 h-24 md:w-28 md:h-28 border-4 border-white/10 shadow-lg">
-                  <AvatarImage src={user?.photoURL || ''} />
-                  <AvatarFallback className="bg-primary/10 text-primary text-2xl font-bold">
-                    {initials}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="absolute -bottom-1 -right-1 glass-badge px-3 py-1 text-[11px] font-medium uppercase tracking-wider text-white/90">
-                  LVL {currentLevel}
-                </div>
-              </div>
-              <div className="flex-1 space-y-2">
-                <div className="flex items-center gap-3 flex-wrap">
-                  <h1 className="text-2xl md:text-3xl font-headline font-bold">
-                    {beginner.name || stats.username || user?.displayName || 'Coder'}
-                  </h1>
-                  <Badge variant="outline" className={cn('text-[11px] uppercase tracking-wider backdrop-blur-sm', getTierColor(tier))}>
-                    {tier}
-                  </Badge>
-                </div>
-                <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-                  <span className="flex items-center gap-1"><BookOpen className="w-3 h-3" /> {lessonCount} lessons done</span>
-                  <span className="flex items-center gap-1"><Zap className="w-3 h-3 text-primary" /> {beginner.xp} XP</span>
-                  <span className="flex items-center gap-1"><Flame className="w-3 h-3 text-orange-400" /> {beginner.streak} day streak</span>
-                </div>
-                <div className="flex items-center gap-2 mt-2">
-                  <Button variant="outline" size="sm" className="gap-1 text-xs glass" onClick={() => router.push('/settings')}>
-                    <Edit3 className="w-3 h-3" /> Edit Profile
-                  </Button>
-                  <ShareAchievement
-                    title={`${beginner.name || stats.username || 'Player'} - DevRann Learner`}
-                    description={`Level ${currentLevel} | ${beginner.xp} XP | ${lessonCount} Lessons | ${beginner.streak} Day Streak`}
-                  />
-                </div>
-              </div>
+    <div className="mx-auto max-w-6xl space-y-6">
+      <Card className="overflow-hidden border-primary/20 bg-primary/[0.03]">
+        <CardContent className="flex flex-col gap-5 p-6 sm:flex-row sm:items-center sm:p-8">
+          <Avatar className="h-20 w-20 border-2 border-primary/30">
+            <AvatarImage src={profile.photoURL || user?.photoURL || ''} alt={`${displayName} avatar`} />
+            <AvatarFallback>{initials}</AvatarFallback>
+          </Avatar>
+          <div className="min-w-0 flex-1 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl font-bold">{displayName}</h1>
+              {profile.rating !== null && <Badge variant="outline"><Medal className="mr-1 h-3 w-3" />{profile.rating} rating</Badge>}
             </div>
-          </CardContent>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Learning Progress */}
-          <Card className="glass-card border-0 lg:col-span-2">
-            <CardHeader>
-              <CardTitle className="text-lg font-headline font-bold uppercase tracking-widest flex items-center gap-2">
-                <GraduationCap className="w-5 h-5 text-primary" /> Learning Progress
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Tabs defaultValue="learning">
-                <TabsList className="grid grid-cols-3 gap-2 h-auto bg-muted/50 p-1 mb-4">
-                  <TabsTrigger value="learning" className="text-xs"><BookOpen className="w-3 h-3" /> Lessons</TabsTrigger>
-                  <TabsTrigger value="stats" className="text-xs"><Activity className="w-3 h-3" /> Stats</TabsTrigger>
-                  <TabsTrigger value="rewards" className="text-xs"><Gift className="w-3 h-3" /> Rewards</TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="learning">
-                  <div className="space-y-6">
-                    <div>
-                      <div className="flex justify-between text-sm mb-2">
-                        <span className="text-muted-foreground">Beginner Roadmap</span>
-                        <span className="font-bold">{lessonCount}/16 lessons</span>
-                      </div>
-                      <Progress value={(lessonCount / 16) * 100} className="h-3" />
-                    </div>
-
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                      <StatBox label="Lessons Done" value={lessonCount} color="text-primary" />
-                      <StatBox label="XP Earned" value={beginner.xp} color="text-orange-400" />
-                      <StatBox label="Current Level" value={currentLevel} color="text-secondary" />
-                      <StatBox label="Day Streak" value={`${beginner.streak} ðŸ”¥`} color="text-orange-400" />
-                    </div>
-
-                    {/* XP Progress */}
-                    <div className="glass rounded-xl">
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between text-xs mb-2">
-                          <span className="text-muted-foreground">Level {currentLevel} Progress</span>
-                          <span className="font-bold">{xpInLevel} / 500 XP</span>
-                        </div>
-                        <Progress value={xpProgress} className="h-2" />
-                        <p className="text-[10px] text-muted-foreground mt-2">
-                          {500 - xpInLevel} XP until Level {currentLevel + 1}
-                        </p>
-                      </CardContent>
-                    </div>
-
-                    {/* Topics Mastered */}
-                    <div>
-                      <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2">Topics Mastered</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {['Output', 'Variables', 'Input', 'Operators', 'Conditions', 'Loops', 'Functions', 'Arrays'].map((topic, i) => (
-                          <Badge
-                            key={topic}
-                            variant={i < lessonCount ? 'default' : 'outline'}
-                            className={cn(
-                              'text-[9px] uppercase tracking-widest',
-                              i < lessonCount ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'text-muted-foreground'
-                            )}
-                          >
-                            {i < lessonCount ? <CheckCircle2 className="w-2.5 h-2.5 mr-1" /> : null}
-                            {topic}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="stats">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <StatBox label="Wins" value={stats.wins || 0} color="text-emerald-400" />
-                    <StatBox label="Losses" value={stats.losses || 0} color="text-destructive" />
-                    <StatBox label="Draws" value={stats.draws || 0} color="text-yellow-400" />
-                    <StatBox label="Win Rate" value={winRate > 0 ? `${winRate}%` : 'â€”'} color="text-primary" />
-                    <StatBox label="Highest ELO" value={stats.highestRating || 1200} color="text-secondary" />
-                    <StatBox label="Total Games" value={(stats.wins || 0) + (stats.losses || 0) + (stats.draws || 0)} color="text-foreground" />
-                    <StatBox label="Total XP" value={stats.xp || beginner.xp || 0} color="text-orange-400" />
-                    <StatBox label="Rank" value={`#${stats.rank || 'â€”'}`} color="text-muted-foreground" />
-                    <StatBox label="DevCoins" value={(stats.devcoins || 0).toLocaleString()} color="text-yellow-400" />
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="rewards">
-                  <DailyLoginRewards userId={user?.uid || null} />
-                </TabsContent>
-              </Tabs>
-            </CardContent>
-          </Card>
-
-          {/* Achievements Sidebar */}
-          <Card className="glass-card border-0">
-            <CardHeader>
-              <CardTitle className="text-lg font-headline font-bold uppercase tracking-widest flex items-center gap-2">
-                <Trophy className="w-5 h-5 text-secondary" /> Achievements
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 gap-3">
-                <AchievementBadge achieved={lessonCount >= 1} label="First Steps" icon={BookOpen} />
-                <AchievementBadge achieved={lessonCount >= 5} label="Getting Started" icon={Star} />
-                <AchievementBadge achieved={lessonCount >= 10} label="Half Way!" icon={Trophy} />
-                <AchievementBadge achieved={lessonCount >= 16} label="Arena Ready" icon={Swords} />
-                <AchievementBadge achieved={beginner.streak >= 3} label="On Fire" icon={Flame} />
-                <AchievementBadge achieved={beginner.streak >= 7} label="Week Warrior" icon={Zap} />
-                <AchievementBadge achieved={beginner.xp >= 100} label="100 XP" icon={Sparkles} />
-                <AchievementBadge achieved={beginner.xp >= 500} label="500 XP" icon={Medal} />
-                <AchievementBadge achieved={beginner.xp >= 1000} label="1000 XP" icon={CrownIcon} />
-                <AchievementBadge achieved={stats.wins >= 1} label="First Blood" icon={Sword} />
-                <AchievementBadge achieved={stats.wins >= 10} label="10 Wins" icon={Trophy} />
-                <AchievementBadge achieved={stats.rating >= 1500} label="Elite Rating" icon={Target} />
+            {profile.bio && <p className="max-w-2xl text-sm text-muted-foreground">{profile.bio}</p>}
+            {profile.interests.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {profile.interests.slice(0, 8).map((interest) => <Badge key={interest} variant="secondary">{interest}</Badge>)}
               </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-  );
-}
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => router.push('/settings')}>Edit profile</Button>
+            {profile.isProfilePublic && (
+              <Button variant="outline" size="icon" aria-label="Share profile" onClick={() => void shareProfile()}>
+                {copied ? <Check className="h-4 w-4" /> : <Share2 className="h-4 w-4" />}
+              </Button>
+            )}
+          </div>
+          {shareError && <p role="status" className="text-xs text-destructive">{shareError}</p>}
+        </CardContent>
+      </Card>
 
-function StatBox({ label, value, color }: { label: string; value: string | number; color: string }) {
-  return (
-    <div className="glass-card space-y-1 p-4 card-hover">
-      <div className={cn('text-2xl font-headline font-bold', color)}>{value}</div>
-      <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{label}</div>
+      <section aria-label="Verified coding and match statistics" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard label="Problems solved" value={practice.solved} icon={<Target className="h-4 w-4" />} />
+        <StatCard label="Submissions" value={practice.submissions} icon={<Code2 className="h-4 w-4" />} />
+        <StatCard label="Matches played" value={games} icon={<Trophy className="h-4 w-4" />} />
+        <StatCard label="Current streak" value={`${calculateSubmissionStreak(data.activity)} days`} icon={<Flame className="h-4 w-4" />} />
+      </section>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader><CardTitle className="flex items-center gap-2"><Activity className="h-5 w-5 text-primary" />Coding activity</CardTitle></CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid gap-3 sm:grid-cols-3">
+              {(['Easy', 'Medium', 'Hard'] as const).map((difficulty) => (
+                <div key={difficulty} className="rounded-md border border-border p-3">
+                  <div className="mb-2 flex justify-between text-sm"><span>{difficulty}</span><strong>{practice.difficulty[difficulty]}</strong></div>
+                  <Progress value={practice.solved ? practice.difficulty[difficulty] / practice.solved * 100 : 0} />
+                </div>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-1.5" aria-label="Daily submission activity in the last year">
+              {Object.entries(data.activity).sort(([a], [b]) => a.localeCompare(b)).slice(-84).map(([date, count]) => (
+                <span key={date} title={`${date}: ${count} submissions`} className="h-3 w-3 rounded-sm bg-primary" style={{ opacity: Math.min(1, 0.2 + count / 5) }} />
+              ))}
+              {Object.keys(data.activity).length === 0 && <p className="text-sm text-muted-foreground">No submissions in the last year.</p>}
+            </div>
+            {data.activityTruncated && <p className="text-xs text-muted-foreground">The activity calendar is capped at the most recent 2,000 submissions in this time window.</p>}
+            {strongestTopics.length > 0 && (
+              <div>
+                <h3 className="mb-2 text-sm font-medium">Topics with accepted solutions</h3>
+                <div className="flex flex-wrap gap-2">
+                  {strongestTopics.map(([topic, value]) => <Badge key={topic} variant="outline">{topic} · {value.solved}</Badge>)}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader><CardTitle>Competitive record</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            <RecordRow label="Wins" value={profile.wins} />
+            <RecordRow label="Losses" value={profile.losses} />
+            <RecordRow label="Draws" value={profile.draws} />
+            <RecordRow label="Win rate" value={winRate === null ? '—' : `${winRate}%`} />
+            <RecordRow label="Highest rating" value={profile.highestRating ?? '—'} />
+            {data.ratingHistory.length > 0 && (
+              <div className="border-t border-border pt-3">
+                <h3 className="mb-2 text-sm font-medium">Recent rating history</h3>
+                {data.ratingHistory.slice(-5).reverse().map((entry) => (
+                  <div key={entry.matchId} className="flex justify-between py-1 text-xs">
+                    <span>{entry.timestamp ? new Date(entry.timestamp).toLocaleDateString() : 'Match'}</span>
+                    <span>{entry.rating ?? '—'} ({entry.change > 0 ? '+' : ''}{entry.change})</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader><CardTitle>Recent submissions</CardTitle></CardHeader>
+        <CardContent>
+          {data.recentSubmissions.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Your judge-verified submissions will appear here.</p>
+          ) : (
+            <div className="divide-y divide-border">
+              {data.recentSubmissions.map((submission) => (
+                <div key={submission.id} className="flex flex-wrap items-center gap-3 py-3 text-sm">
+                  <span className={submission.verdict === 'Accepted' ? 'text-emerald-400' : 'text-muted-foreground'}>{submission.verdict}</span>
+                  <span className="font-mono text-xs">{submission.problemId}</span>
+                  <span className="text-muted-foreground">{submission.language}</span>
+                  {submission.executionTimeMs !== undefined && <span className="text-xs text-muted-foreground">{submission.executionTimeMs} ms</span>}
+                  <span className="ml-auto text-xs text-muted-foreground">{submission.submittedAt ? new Date(submission.submittedAt).toLocaleString() : '—'}</span>
+                  <Button size="sm" variant="ghost" onClick={() => router.push(`/practice?problem=${encodeURIComponent(submission.problemId)}`)}>
+                    Problem <ArrowUpRight className="ml-1 h-3 w-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>Recent matches</CardTitle></CardHeader>
+        <CardContent>
+          {data.matchHistory.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Completed matches will appear here.</p>
+          ) : (
+            <div className="divide-y divide-border">
+              {data.matchHistory.map((match) => (
+                <div key={match.id} className="flex flex-wrap items-center gap-3 py-3 text-sm">
+                  <Badge variant="outline">{match.result}</Badge>
+                  <span>vs. {match.opponent}</span>
+                  <span className="text-muted-foreground">{match.problemTitle}</span>
+                  {match.ratingChange !== null && <span className="ml-auto text-xs">{match.ratingChange > 0 ? '+' : ''}{match.ratingChange} rating</span>}
+                  <span className="text-xs text-muted-foreground">{match.timestamp ? new Date(match.timestamp).toLocaleDateString() : '—'}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
 
-function AchievementBadge({ achieved, label, icon: Icon }: { achieved: boolean; label: string; icon: any }) {
+function StatCard({ label, value, icon }: { label: string; value: string | number; icon: React.ReactNode }) {
   return (
-    <div className={cn(
-      'flex flex-col items-center gap-2 p-3 rounded-xl text-center glass-card',
-      achieved ? 'border-secondary/30 bg-secondary/5' : 'opacity-70'
-    )}>
-      <div className={cn('w-10 h-10 rounded-full flex items-center justify-center', achieved ? 'bg-secondary/15' : 'bg-muted/40')}>
-        {achieved ? (
-          <Icon className="w-5 h-5 text-secondary" />
-        ) : (
-          <div className="w-5 h-5 text-muted-foreground/60" />
-        )}
-      </div>
-      <span className="text-[11px] font-medium uppercase tracking-wider">{label}</span>
-    </div>
+    <Card>
+      <CardContent className="flex items-center justify-between p-4">
+        <div><p className="text-xs text-muted-foreground">{label}</p><p className="text-2xl font-semibold">{value}</p></div>
+        <span className="text-primary">{icon}</span>
+      </CardContent>
+    </Card>
   );
 }
 
-function CrownIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M2 20h20M4 20V8l4 4 4-8 4 8 4-4v12" />
-    </svg>
-  );
+function RecordRow({ label, value }: { label: string; value: string | number }) {
+  return <div className="flex justify-between text-sm"><span className="text-muted-foreground">{label}</span><strong>{value}</strong></div>;
 }

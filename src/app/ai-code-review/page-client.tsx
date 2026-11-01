@@ -21,7 +21,6 @@ import { PremiumUpgradeModal } from '@/components/ai/PremiumUpgradeModal';
 import { ThinkingIndicator } from '@/components/ai/ThinkingIndicator';
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
-import rehypeRaw from 'rehype-raw';
 
 const CATEGORIES = [
   { key: 'correctness', label: 'Correctness' },
@@ -249,7 +248,7 @@ function MarkdownReview({ content }: { content: string }) {
   return (
     <div className="prose prose-invert max-w-none prose-sm prose-headings:font-bold prose-headings:text-foreground prose-a:text-primary prose-code:before:content-none prose-code:after:content-none prose-pre:p-0 prose-pre:bg-transparent prose-pre:border-none">
       <ReactMarkdown
-        rehypePlugins={[rehypeHighlight, rehypeRaw]}
+        rehypePlugins={[rehypeHighlight]}
         components={components}
       >
         {content}

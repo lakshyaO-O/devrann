@@ -1,170 +1,219 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { Shell } from '@/components/layout/Shell';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Separator } from '@/components/ui/separator';
 import {
-  Target, Flame, BookOpen, Swords, Brain, Zap, Star, Coins,
-  CheckCircle2, Clock, Gift, Trophy, Sparkles, Loader2,
-  Code2, Users, Radio,
+  CheckCircle2, Code2, Coins, Flame, Loader2, RefreshCw, Swords, Zap,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { motion } from 'framer-motion';
+import { useUser } from '@/firebase/auth/use-user';
+import type { DailyMission } from '@/types';
 
-const categories = [
-  { id: 'practice', label: 'Practice', icon: Code2, color: 'text-blue-400' },
-  { id: 'arena', label: 'Arena', icon: Swords, color: 'text-red-400' },
-  { id: 'learning', label: 'Learning', icon: BookOpen, color: 'text-emerald-400' },
-  { id: 'social', label: 'Social', icon: Users, color: 'text-purple-400' },
-  { id: 'streak', label: 'Streak', icon: Flame, color: 'text-orange-400' },
-];
+const CATEGORY_DETAILS = {
+  practice: { label: 'Practice', icon: Code2, href: '/practice' },
+  arena: { label: 'Arena', icon: Swords, href: '/arena' },
+} as const;
 
-const mockMissions = [
-  { id: '1', title: 'Solve 3 Practice Problems', description: 'Complete any 3 practice problems today.', category: 'practice', progress: 2, total: 3, xpReward: 100, coinReward: 20, difficulty: 'Easy', completed: false },
-  { id: '2', title: 'Win an Arena Match', description: 'Win 1 arena match against any opponent.', category: 'arena', progress: 1, total: 1, xpReward: 200, coinReward: 50, difficulty: 'Medium', completed: true },
-  { id: '3', title: 'Complete a Lesson', description: 'Finish any learning lesson in the roadmap.', category: 'learning', progress: 0, total: 1, xpReward: 150, coinReward: 30, difficulty: 'Easy', completed: false },
-  { id: '4', title: 'Share Code with a Friend', description: 'Share a code snippet with another user.', category: 'social', progress: 0, total: 1, xpReward: 80, coinReward: 15, difficulty: 'Easy', completed: false },
-  { id: '5', title: '3-Day Streak', description: 'Maintain a 3-day login streak.', category: 'streak', progress: 2, total: 3, xpReward: 300, coinReward: 75, difficulty: 'Medium', completed: false },
-  { id: '6', title: 'Solve 5 Problems in a Row', description: 'Solve 5 practice problems without leaving the page.', category: 'practice', progress: 3, total: 5, xpReward: 400, coinReward: 100, difficulty: 'Hard', completed: false },
-  { id: '7', title: 'Win 3 Arena Matches', description: 'Win 3 arena matches in one day.', category: 'arena', progress: 1, total: 3, xpReward: 500, coinReward: 120, difficulty: 'Hard', completed: false },
-  { id: '8', title: 'Read a Lesson', description: 'Read any lesson for at least 5 minutes.', category: 'learning', progress: 1, total: 1, xpReward: 60, coinReward: 10, difficulty: 'Easy', completed: true },
-];
+type MissionCategory = keyof typeof CATEGORY_DETAILS;
 
 export default function MissionsPage() {
-  const [filter, setFilter] = useState('All');
+  const { user, loading: authLoading } = useUser();
+  const [missions, setMissions] = useState<DailyMission[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [claimingId, setClaimingId] = useState<string | null>(null);
+  const [refreshNumber, setRefreshNumber] = useState(0);
+  const [filter, setFilter] = useState<'all' | MissionCategory>('all');
 
-  const filtered = filter === 'All' ? mockMissions : mockMissions.filter(m => m.category === filter);
-  const streak = 7;
-  const longestStreak = 14;
+  useEffect(() => {
+    let active = true;
+
+    async function loadMissions() {
+      if (authLoading) return;
+      if (!user) {
+        setMissions([]);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      setError(null);
+      try {
+        const token = await user.getIdToken();
+        const response = await fetch('/api/missions/daily', {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store',
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Unable to load daily missions.');
+        if (active) setMissions(result.missions as DailyMission[]);
+      } catch (reason) {
+        if (active) setError(reason instanceof Error ? reason.message : 'Unable to load daily missions.');
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+
+    void loadMissions();
+    return () => { active = false; };
+  }, [user, authLoading, refreshNumber]);
+
+  const claimReward = useCallback(async (mission: DailyMission) => {
+    if (!user || claimingId) return;
+    setClaimingId(mission.id);
+    setError(null);
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch('/api/missions/daily', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ missionId: mission.id }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Unable to claim mission reward.');
+      setMissions((current) => current.map((item) =>
+        item.id === mission.id ? { ...item, claimed: true } : item,
+      ));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Unable to claim mission reward.');
+    } finally {
+      setClaimingId(null);
+    }
+  }, [user, claimingId]);
+
+  const visibleMissions = missions.filter((mission) =>
+    filter === 'all' || mission.type === filter,
+  );
+  const completedCount = missions.filter((mission) => mission.completed).length;
 
   return (
     <Shell>
       <div className="space-y-8">
-        <div className="space-y-2">
-          <h1 className="text-4xl font-headline font-bold text-foreground">
-            Missions
-          </h1>
-          <p className="text-muted-foreground">Complete missions to earn XP, coins, and build your streak.</p>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h1 className="text-4xl font-headline font-bold text-foreground">Daily Missions</h1>
+            <p className="text-muted-foreground">
+              Progress is counted from accepted submissions and completed Arena matches recorded by DevRann.
+            </p>
+          </div>
+          {!loading && missions.length > 0 && (
+            <Badge variant="outline">{completedCount} of {missions.length} completed</Badge>
+          )}
         </div>
 
-        <Card className="relative overflow-hidden border-primary/30 bg-primary/10">
-
-          <CardContent className="p-6 relative z-10">
-            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
-                <div className="w-16 h-16 rounded-2xl bg-orange-500/20 border border-orange-500/30 flex items-center justify-center">
-                  <Flame className="w-8 h-8 text-orange-400" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-2xl font-headline font-bold">{streak} Day Streak</h2>
-                    <Badge className="bg-orange-500/20 text-orange-400 border-orange-500/30 text-[11px] uppercase tracking-wider">Active</Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">Best streak: {longestStreak} days</p>
-                  <div className="flex gap-1 mt-2">
-                    {Array.from({ length: 7 }).map((_, i) => (
-                      <div key={i} className={cn(
-                        'w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold',
-                        i < streak % 7 ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' :
-                        i === streak % 7 ? 'bg-muted/30 text-muted-foreground border border-dashed border-border' :
-                        'bg-muted/10 text-muted-foreground/50'
-                      )}>
-                        {i < streak % 7 ? <Flame className="w-3.5 h-3.5" /> : i + 1}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <div className="text-center">
-                <p className="text-3xl font-headline font-bold text-orange-400">🔥</p>
-                <p className="text-xs text-muted-foreground mt-1">Keep going!</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            key="All"
-            variant={filter === 'All' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setFilter('All')}
-            className="text-xs font-bold uppercase tracking-widest"
-          >All</Button>
-          {categories.map(cat => {
-            const Icon = cat.icon;
-            return (
-              <Button
-                key={cat.id}
-                variant={filter === cat.id ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setFilter(cat.id)}
-                className="text-xs font-bold uppercase tracking-widest gap-1.5"
-              >
-                <Icon className="w-3 h-3" /> {cat.label}
+        {error && (
+          <Card role="alert" className="border-destructive/40">
+            <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-destructive">{error}</p>
+              <Button variant="outline" size="sm" onClick={() => setRefreshNumber((n) => n + 1)}>
+                <RefreshCw className="mr-2 h-4 w-4" /> Retry
               </Button>
-            );
-          })}
-        </div>
+            </CardContent>
+          </Card>
+        )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filtered.map((mission, i) => {
-            const cat = categories.find(c => c.id === mission.category);
-            const Icon = cat?.icon || Target;
-            const isComplete = mission.completed || mission.progress >= mission.total;
+        {authLoading || loading ? (
+          <div className="flex min-h-60 items-center justify-center" aria-label="Loading daily missions">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          </div>
+        ) : !user ? (
+          <Card>
+            <CardContent className="space-y-3 p-8 text-center">
+              <Flame className="mx-auto h-8 w-8 text-muted-foreground" />
+              <h2 className="font-semibold">Sign in to view your missions</h2>
+              <p className="text-sm text-muted-foreground">Missions are tied to your verified account activity.</p>
+              <Button asChild><Link href="/auth">Sign in</Link></Button>
+            </CardContent>
+          </Card>
+        ) : missions.length === 0 && !error ? (
+          <Card>
+            <CardContent className="p-8 text-center text-sm text-muted-foreground">
+              No daily missions are available right now.
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            <div className="flex flex-wrap gap-2" aria-label="Filter missions">
+              {(['all', 'practice', 'arena'] as const).map((category) => (
+                <Button
+                  key={category}
+                  variant={filter === category ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setFilter(category)}
+                >
+                  {category === 'all' ? 'All' : CATEGORY_DETAILS[category].label}
+                </Button>
+              ))}
+            </div>
 
-            return (
-              <motion.div key={mission.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
-                <Card className={cn(
-                  'bg-card/50 border-border hover:border-primary/30 transition-all h-full',
-                  isComplete && 'border-emerald-500/30 bg-emerald-500/5'
-                )}>
-                  <CardContent className="p-5 flex flex-col h-full">
-                    <div className="flex items-start justify-between mb-3">
-                      <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center', isComplete ? 'bg-emerald-500/10' : 'bg-muted/30')}>
-                        <Icon className={cn('w-5 h-5', isComplete ? 'text-emerald-400' : cat?.color)} />
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {visibleMissions.map((mission) => {
+                const category = CATEGORY_DETAILS[mission.type as MissionCategory];
+                if (!category) return null;
+                const Icon = category.icon;
+                const progressValue = Math.min(100, (mission.progress / mission.requirement) * 100);
+
+                return (
+                  <Card key={mission.id} className={mission.completed ? 'border-emerald-500/30' : undefined}>
+                    <CardContent className="flex h-full flex-col p-5">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted">
+                            <Icon className="h-5 w-5 text-primary" />
+                          </span>
+                          <div>
+                            <p className="text-xs text-muted-foreground">{category.label}</p>
+                            <h2 className="font-semibold">{mission.title}</h2>
+                          </div>
+                        </div>
+                        {mission.completed && (
+                          <Badge variant="outline" className="text-emerald-500">
+                            <CheckCircle2 className="mr-1 h-3 w-3" /> Complete
+                          </Badge>
+                        )}
                       </div>
-                      <Badge variant="outline" className={cn(
-                        'text-[9px] uppercase tracking-widest',
-                        mission.difficulty === 'Easy' ? 'text-emerald-400 border-emerald-400/30' :
-                        mission.difficulty === 'Medium' ? 'text-yellow-400 border-yellow-400/30' :
-                        'text-destructive border-destructive/30'
-                      )}>{mission.difficulty}</Badge>
-                    </div>
-                    <h3 className="font-headline font-bold group-hover:text-primary transition-colors">{mission.title}</h3>
-                    <p className="text-xs text-muted-foreground mt-1 flex-1">{mission.description}</p>
-                    <div className="mt-3">
-                      <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
-                        <span>Progress</span>
-                        <span>{mission.progress}/{mission.total}</span>
+
+                      <p className="mt-3 flex-1 text-sm text-muted-foreground">{mission.description}</p>
+                      <div className="mt-4 space-y-2">
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>Verified progress</span>
+                          <span>{mission.progress}/{mission.requirement}</span>
+                        </div>
+                        <Progress value={progressValue} />
                       </div>
-                      <Progress value={(mission.progress / mission.total) * 100} className={cn('h-1.5', isComplete && 'bg-emerald-500/20')} />
-                    </div>
-                    <div className="flex items-center justify-between mt-4 pt-3 border-t border-border/50">
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <span className="flex items-center gap-1"><Zap className="w-3 h-3 text-primary" /> {mission.xpReward}</span>
-                        <span className="flex items-center gap-1"><Coins className="w-3 h-3 text-yellow-400" /> {mission.coinReward}</span>
+
+                      <div className="mt-4 flex items-center justify-between border-t border-border pt-4">
+                        <div className="flex gap-3 text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1"><Zap className="h-3 w-3 text-primary" /> {mission.xpReward} XP</span>
+                          <span className="flex items-center gap-1"><Coins className="h-3 w-3 text-yellow-500" /> {mission.coinReward}</span>
+                        </div>
+                        {mission.claimed ? (
+                          <Badge variant="secondary">Claimed</Badge>
+                        ) : mission.completed ? (
+                          <Button size="sm" onClick={() => void claimReward(mission)} disabled={claimingId !== null}>
+                            {claimingId === mission.id && <Loader2 className="mr-2 h-3 w-3 animate-spin" />}
+                            Claim reward
+                          </Button>
+                        ) : (
+                          <Button asChild size="sm" variant="outline">
+                            <Link href={category.href}>Continue</Link>
+                          </Button>
+                        )}
                       </div>
-                      {isComplete ? (
-                        <Button size="sm" className="gap-1.5 text-xs bg-emerald-500/20 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/30">
-                          <CheckCircle2 className="w-3 h-3" /> Claim Reward
-                        </Button>
-                      ) : (
-                        <Button variant="outline" size="sm" className="text-xs" disabled={mission.progress === 0}>
-                          {mission.progress > 0 ? 'Continue' : 'Start'}
-                        </Button>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            );
-          })}
-        </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
     </Shell>
   );

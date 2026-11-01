@@ -15,7 +15,7 @@ interface ArenaHeaderProps {
 export function ArenaHeader({
   activeBattles = 0,
   onlinePlayers = 0,
-  userRating = 0,
+  userRating,
   userTier = '',
   className,
 }: ArenaHeaderProps) {
@@ -47,7 +47,7 @@ export function ArenaHeader({
           <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-primary/20 bg-primary/5 text-xs font-headline font-bold uppercase tracking-wider text-primary">
             <Activity className="w-3.5 h-3.5" />
             <span>{activeBattles}</span>
-            <span className="text-primary/70">Active Battles</span>
+            <span className="text-primary/70">Your Active Battles</span>
           </div>
           <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-primary/20 bg-primary/5 text-xs font-headline font-bold uppercase tracking-wider text-primary">
             <Users className="w-3.5 h-3.5" />
@@ -56,7 +56,7 @@ export function ArenaHeader({
           </div>
           <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-primary/20 bg-primary/5 text-xs font-headline font-bold uppercase tracking-wider text-primary">
             <Trophy className="w-3.5 h-3.5" />
-            <span>{userRating}</span>
+            <span>{typeof userRating === 'number' ? userRating : '—'}</span>
             <span className="text-primary/70">Rating</span>
           </div>
           <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-primary/20 bg-primary/5 text-xs font-headline font-bold uppercase tracking-wider text-primary">

@@ -8,6 +8,7 @@ const protectedRoutes = [
   '/projects', '/code-share', '/study-groups', '/mentors',
   '/progress', '/learning', '/achievements', '/missions',
   '/challenges', '/weekly-challenges', '/contests',
+  '/problems',
   '/admin', '/admin/',
 ];
 
@@ -19,6 +20,25 @@ function isMatching(pathname: string, routes: string[]): boolean {
   return routes.some(route => pathname === route || pathname.startsWith(route + '/'));
 }
 
+function getSafeRedirectTarget(request: NextRequest): URL {
+  const redirect = request.nextUrl.searchParams.get('redirect');
+  if (!redirect || !redirect.startsWith('/') || redirect.startsWith('//') || redirect.includes('\\')) {
+    return new URL('/dashboard', request.url);
+  }
+
+  const target = new URL(redirect, request.url);
+  return target.origin === request.nextUrl.origin
+    ? target
+    : new URL('/dashboard', request.url);
+}
+
+function getAuthRedirect(request: NextRequest): URL {
+  const url = new URL('/auth', request.url);
+  url.searchParams.set('mode', 'login');
+  url.searchParams.set('redirect', `${request.nextUrl.pathname}${request.nextUrl.search}`);
+  return url;
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const sessionCookie = request.cookies.get('__session')?.value;
@@ -26,52 +46,22 @@ export async function middleware(request: NextRequest) {
   const needsSession = isMatching(pathname, protectedRoutes);
   const needsAdmin = isMatching(pathname, adminRoutes);
   const onAuthPage = isMatching(pathname, authRoutes);
+  const mustAuthenticate = needsSession || needsAdmin;
 
-  if (sessionCookie && (needsSession || needsAdmin || onAuthPage)) {
-    const session = await verifySessionCookie(sessionCookie);
-    if (!session) {
-      if (onAuthPage) {
-        return NextResponse.next();
-      }
-      const url = new URL('/auth', request.url);
-      url.searchParams.set('mode', 'login');
-      url.searchParams.set('redirect', pathname);
-      const res = NextResponse.redirect(url);
-      res.cookies.set('__session', '', { path: '/', maxAge: 0 });
-      return res;
-    }
+  const sessionIsValid = Boolean(
+    sessionCookie
+    && (mustAuthenticate || onAuthPage)
+    && await verifySessionCookie(sessionCookie),
+  );
+
+  if (mustAuthenticate && !sessionIsValid) {
+    const response = NextResponse.redirect(getAuthRedirect(request));
+    if (sessionCookie) response.cookies.set('__session', '', { path: '/', maxAge: 0 });
+    return response;
   }
 
-  if (needsSession) {
-    if (!sessionCookie) {
-      const url = new URL('/auth', request.url);
-      url.searchParams.set('mode', 'login');
-      url.searchParams.set('redirect', pathname);
-      return NextResponse.redirect(url);
-    }
-    const session = await verifySessionCookie(sessionCookie);
-    if (!session) {
-      const url = new URL('/auth', request.url);
-      url.searchParams.set('mode', 'login');
-      url.searchParams.set('redirect', pathname);
-      const res = NextResponse.redirect(url);
-      res.cookies.set('__session', '', { path: '/', maxAge: 0 });
-      return res;
-    }
-  }
-
-  if (sessionCookie && onAuthPage) {
-    const session = await verifySessionCookie(sessionCookie);
-    if (session) {
-      return NextResponse.redirect(new URL('/dashboard', request.url));
-    }
-  }
-
-  if (needsAdmin && !sessionCookie) {
-    const url = new URL('/auth', request.url);
-    url.searchParams.set('mode', 'login');
-    url.searchParams.set('redirect', pathname);
-    return NextResponse.redirect(url);
+  if (onAuthPage && sessionIsValid) {
+    return NextResponse.redirect(getSafeRedirectTarget(request));
   }
 
   const response = NextResponse.next();

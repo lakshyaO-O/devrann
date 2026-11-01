@@ -47,40 +47,53 @@ export async function POST(request: NextRequest) {
       // No body or invalid JSON - setup endpoint accepts empty body
     }
 
-    // Optional shared secret: when SETUP_SECRET is set, the caller must prove it.
     const setupSecret = process.env.SETUP_SECRET;
     const providedSecret = request.headers.get('X-Setup-Secret') || '';
-    if (setupSecret && !safeEqual(providedSecret, setupSecret)) {
+    const setupEmail = process.env.ADMIN_SETUP_EMAIL?.trim().toLowerCase();
+    if (!setupSecret || !setupEmail) {
+      return NextResponse.json(
+        { error: 'Admin setup is disabled until SETUP_SECRET and ADMIN_SETUP_EMAIL are configured.' },
+        { status: 503 },
+      );
+    }
+    if (!safeEqual(providedSecret, setupSecret)) {
       return NextResponse.json({ error: 'Invalid setup secret' }, { status: 403 });
     }
 
-    const db = getAdminFirestore();
-
-    const setupEmail = process.env.ADMIN_SETUP_EMAIL;
-    if (setupEmail && decodedToken.email && decodedToken.email.toLowerCase() !== setupEmail.toLowerCase()) {
+    if (setupEmail
+      && (!decodedToken.email
+        || decodedToken.email_verified !== true
+        || decodedToken.email.toLowerCase() !== setupEmail)) {
       return NextResponse.json({ error: 'This account is not authorized for setup' }, { status: 403 });
     }
 
+    const db = getAdminFirestore();
+    const userRef = db.collection('users').doc(uid);
     await db.runTransaction(async (tx) => {
       const lockRef = db.collection('config').doc('setupLock');
-      const lockSnap = await tx.get(lockRef);
-      const claimedBy = lockSnap.exists ? (lockSnap.data() as any)?.claimedBy : null;
-      if (claimedBy && claimedBy !== uid) {
-        throw new SetupAbortError('Setup already completed. A super_admin already exists.');
+      const [lockSnap, adminsByRole, adminsByFlag, userSnap] = await Promise.all([
+        tx.get(lockRef),
+        tx.get(db.collection('users').where('role', 'in', ['admin', 'super_admin']).limit(1)),
+        tx.get(db.collection('users').where('isAdmin', '==', true).limit(1)),
+        tx.get(userRef),
+      ]);
+      if (lockSnap.exists || !adminsByRole.empty || !adminsByFlag.empty) {
+        throw new SetupAbortError('Admin bootstrap is already complete. Contact an existing administrator.');
       }
-      if (!claimedBy) {
-        // First claimant wins the transaction; concurrent callers are rejected.
-        tx.set(lockRef, { claimedBy: uid, claimedAt: new Date().toISOString() });
+      if (!userSnap.exists) {
+        throw new SetupAbortError('Create your DevRann profile before requesting administrator bootstrap.', 404);
       }
-      tx.set(
-        db.collection('users').doc(uid),
-        {
-          role: 'super_admin',
-          isAdmin: true,
-          updatedAt: new Date().toISOString(),
-        },
-        { merge: true },
-      );
+      const existingRole = userSnap.data()?.role;
+      if (existingRole && existingRole !== 'user') {
+        throw new SetupAbortError('This account already has an assigned role. Bootstrap will not overwrite it.');
+      }
+
+      tx.create(lockRef, { claimedBy: uid, claimedAt: new Date().toISOString() });
+      tx.update(userRef, {
+        role: 'super_admin',
+        isAdmin: true,
+        updatedAt: new Date().toISOString(),
+      });
     });
 
     return NextResponse.json({ success: true, uid, role: 'super_admin' });

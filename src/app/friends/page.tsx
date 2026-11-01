@@ -22,7 +22,7 @@ import { createOrGetChat } from '@/services/chat';
 import { useToast } from '@/hooks/use-toast';
 import { GuestGate } from '@/components/auth/GuestGate';
 import { EmptyState } from '@/components/premium/EmptyState';
-import { collection, query, where, getDocs, limit, doc, getDoc, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs, limit, onSnapshot } from 'firebase/firestore';
 import { initializeFirebase } from '@/firebase';
 
 export default function FriendsPage() {
@@ -74,16 +74,10 @@ export default function FriendsPage() {
       if (!db) return;
       const q = query(collection(db, 'usernames'), where('name', '>=', userSearchQuery.toLowerCase()), where('name', '<=', userSearchQuery.toLowerCase() + '\uf8ff'), limit(10));
       const snap = await getDocs(q);
-      const results: any[] = [];
-      for (const d of snap.docs) {
-        const data = d.data();
-        if (data.userId === user.uid) continue;
-        const userDoc = await getDoc(doc(db, 'users', data.userId));
-        if (userDoc.exists()) {
-          const u = userDoc.data();
-          results.push({ uid: data.userId, username: u.username, photoURL: u.photoURL, rating: u.rating || 1200, tier: u.tier || 'Beginner', onlineStatus: u.onlineStatus || 'offline', publicId: u.publicId });
-        }
-      }
+      const results = snap.docs
+        .map((entry) => entry.data())
+        .filter((entry) => entry.userId !== user.uid)
+        .map((entry) => ({ uid: entry.userId, username: entry.name, photoURL: '', onlineStatus: 'offline' }));
       setUserSearchResults(results);
     } catch { toast({ variant: 'destructive', title: 'Search failed' }); }
     finally { setUserSearching(false); }

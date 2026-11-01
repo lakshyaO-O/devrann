@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { initializeFirebase } from '@/firebase';
 import {
-  collection, query, orderBy, onSnapshot,
+  collection, query, orderBy, onSnapshot, where,
 } from 'firebase/firestore';
 import type { QueryDocumentSnapshot, DocumentData, QuerySnapshot } from 'firebase/firestore';
 import type { PracticeProblemDocument, UserPracticeProgress, Difficulty } from '@/types';
@@ -11,42 +11,48 @@ import {
   fetchProblems, getAllUserProgress, toggleBookmark as fbToggleBookmark,
   fetchRecentlyViewed, trackRecentlyViewed,
 } from '@/services/practice';
-import { enrichAllProblems } from '@/lib/problem-utils';
 
 export function usePracticeProblems() {
   const [problems, setProblems] = useState<PracticeProblemDocument[]>([]);
   const [loading, setLoading] = useState(true);
-  const [usingFallback, setUsingFallback] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  const [retryToken, setRetryToken] = useState(0);
 
   useEffect(() => {
-    const staticData = enrichAllProblems();
+    let active = true;
+    setLoading(true);
+    setError(null);
     const { firestore: db } = initializeFirebase();
     if (!db) {
-      setProblems(staticData);
-      setUsingFallback(true);
+      setProblems([]);
+      setError(new Error('The problem database is not configured.'));
       setLoading(false);
-      return;
+      return () => { active = false; };
     }
-    const q = query(collection(db, 'problems'), orderBy('title', 'asc'));
+    const q = query(
+      collection(db, 'problems'),
+      where('isPublished', '==', true),
+      orderBy('title', 'asc'),
+    );
     const unsub = onSnapshot(q, (snap: QuerySnapshot<DocumentData>) => {
       const fbData = snap.docs.map((d: QueryDocumentSnapshot<DocumentData>) => ({ id: d.id, ...d.data() } as PracticeProblemDocument));
-      if (fbData.length > 0) {
-        setProblems(fbData);
-        setUsingFallback(false);
-      } else {
-        setProblems(staticData);
-        setUsingFallback(true);
-      }
+      if (!active) return;
+      setProblems(fbData);
+      setError(null);
       setLoading(false);
-    }, () => {
-      setProblems(staticData);
-      setUsingFallback(true);
+    }, (cause) => {
+      if (!active) return;
+      setProblems([]);
+      setError(cause);
       setLoading(false);
     });
-    return () => unsub();
-  }, []);
+    return () => {
+      active = false;
+      unsub();
+    };
+  }, [retryToken]);
 
-  return { problems, loading, usingFallback };
+  return { problems, loading, error, retry: () => setRetryToken((token) => token + 1) };
 }
 
 export function useUserProgress(userId: string | null) {

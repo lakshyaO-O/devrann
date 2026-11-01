@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Shell } from '@/components/layout/Shell';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -9,32 +9,61 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Search as SearchIcon, User, Code2, Loader2, X, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
-import { useCollection } from '@/firebase/firestore/use-collection';
-import { useFirestore } from '@/firebase/provider';
-import { collection, query as firestoreQuery, orderBy, limit } from 'firebase/firestore';
-import { PRACTICE_PROBLEMS } from '@/data/practice-problems';
+import { usePracticeProblems } from '@/hooks/use-practice-problems';
 
 export default function SearchPage() {
-  const db = useFirestore();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchType, setSearchType] = useState<'all' | 'users' | 'problems'>('all');
+  const [users, setUsers] = useState<any[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [usersError, setUsersError] = useState(false);
+  const { problems, loading: problemsLoading, error: problemsError, retry: retryProblems } = usePracticeProblems();
 
-  const usersQuery = useMemo(() => {
-    if (!db || !searchQuery) return null;
-    return firestoreQuery(collection(db, 'users'), orderBy('rating', 'desc'), limit(20));
-  }, [db, searchQuery]);
-
-  const { data: users, loading: usersLoading } = useCollection(usersQuery);
+  const loadUsers = useCallback(async (term: string) => {
+    if (term.trim().length < 2 || searchType === 'problems') {
+      setUsers([]);
+      setUsersLoading(false);
+      setUsersError(false);
+      return;
+    }
+    setUsersLoading(true);
+    setUsersError(false);
+    try {
+      const response = await fetch(`/api/public/profiles?q=${encodeURIComponent(term.trim())}`, { cache: 'no-store' });
+      if (!response.ok) throw new Error('Player search is temporarily unavailable.');
+      const data = await response.json();
+      setUsers(Array.isArray(data.profiles) ? data.profiles : []);
+    } catch {
+      setUsersError(true);
+      setUsers([]);
+    } finally {
+      setUsersLoading(false);
+    }
+  }, [searchType]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void loadUsers(searchQuery); }, 200);
+    return () => window.clearTimeout(timer);
+  }, [searchQuery, loadUsers]);
+  const retryUsers = () => { void loadUsers(searchQuery); };
 
   const filteredUsers = (users || []).filter((u: any) =>
-    u.username?.toLowerCase().includes(searchQuery.toLowerCase())
+    u.banned !== true
+    && typeof u.username === 'string'
+    && u.username.toLowerCase().includes(searchQuery.toLowerCase())
   );
-  const filteredProblems = PRACTICE_PROBLEMS.filter((p) =>
+  const filteredProblems = problems.filter((p) =>
     p.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    p.category?.toLowerCase().includes(searchQuery.toLowerCase())
+    p.category?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    p.topics?.some((topic) => topic.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
-  const hasResults = filteredUsers.length > 0 || filteredProblems.length > 0;
+  const hasResults = (searchType !== 'problems' && filteredUsers.length > 0)
+    || (searchType !== 'users' && filteredProblems.length > 0);
+  const searchError = (searchType !== 'problems' && Boolean(usersError))
+    || (searchType !== 'users' && Boolean(problemsError));
+  const loading = searchType === 'users' ? usersLoading
+    : searchType === 'problems' ? problemsLoading
+      : usersLoading || problemsLoading;
 
   return (
     <Shell>
@@ -83,15 +112,27 @@ export default function SearchPage() {
           </CardContent>
         </Card>
 
-        {usersLoading && (
+        {loading && (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="w-8 h-8 text-primary animate-spin" />
           </div>
         )}
 
-        {!usersLoading && searchQuery.length > 0 && (
+        {!loading && searchQuery.length > 0 && (
           <div className="space-y-6">
-            {!hasResults && (
+            {(usersError && searchType !== 'problems') && (
+              <div role="alert" className="flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+                <p className="text-sm text-destructive">Player search is temporarily unavailable.</p>
+                <Button size="sm" variant="outline" onClick={retryUsers}>Retry</Button>
+              </div>
+            )}
+            {(problemsError && searchType !== 'users') && (
+              <div role="alert" className="flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+                <p className="text-sm text-destructive">Problem search is temporarily unavailable.</p>
+                <Button size="sm" variant="outline" onClick={retryProblems}>Retry</Button>
+              </div>
+            )}
+            {!hasResults && !searchError && (
               <div className="text-center py-20 text-muted-foreground">
                 <SearchIcon className="w-12 h-12 mx-auto mb-4 opacity-60" />
                 <p className="font-bold uppercase tracking-widest text-sm">No results found</p>
@@ -99,14 +140,14 @@ export default function SearchPage() {
               </div>
             )}
 
-            {searchType !== 'problems' && filteredUsers.length > 0 && (
+            {searchType !== 'problems' && !usersError && filteredUsers.length > 0 && (
               <div>
                 <h2 className="text-sm font-bold uppercase tracking-widest text-muted-foreground mb-4">
                   Players ({filteredUsers.length})
                 </h2>
                 <div className="space-y-2">
                   {filteredUsers.map((user: any) => (
-                    <Link key={user.id} href={`/profile`}>
+                    <Link key={user.id} href={`/profile/${user.id}`}>
                       <Card className="bg-card/50 border-border hover:border-primary/30 transition-all cursor-pointer">
                         <CardContent className="p-4 flex items-center gap-4">
                           <Avatar className="h-10 w-10 border border-muted">
@@ -114,7 +155,11 @@ export default function SearchPage() {
                           </Avatar>
                           <div className="flex-1">
                             <p className="font-bold">{user.username}</p>
-                            <p className="text-xs text-muted-foreground">{user.rating || 1200} ELO • {user.tier || 'Beginner'}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {user.privacySettings?.showRating === true && typeof user.rating === 'number'
+                                ? `${user.rating} ELO${typeof user.tier === 'string' ? ` · ${user.tier}` : ''}`
+                                : 'Rating private'}
+                            </p>
                           </div>
                           <Button variant="ghost" size="sm" asChild>
                             <span>View Profile</span>
@@ -127,14 +172,14 @@ export default function SearchPage() {
               </div>
             )}
 
-            {searchType !== 'users' && filteredProblems.length > 0 && (
+            {searchType !== 'users' && !problemsError && filteredProblems.length > 0 && (
               <div>
                 <h2 className="text-sm font-bold uppercase tracking-widest text-muted-foreground mb-4">
                   Problems ({filteredProblems.length})
                 </h2>
                 <div className="space-y-2">
                   {filteredProblems.map((problem: any) => (
-                    <Link key={problem.id} href={`/practice`}>
+                    <Link key={problem.id} href={`/practice?problem=${encodeURIComponent(problem.id)}`}>
                       <Card className="bg-card/50 border-border hover:border-primary/30 transition-all cursor-pointer">
                         <CardContent className="p-4 flex items-center gap-4">
                           <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">

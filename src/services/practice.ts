@@ -153,6 +153,47 @@ export async function submitSolution(
   return { submission, results, compileTimeMs: data.compileTimeMs, codeSize: data.codeSize };
 }
 
+export async function runPublicTests(
+  problemId: string,
+  language: CodingLanguage,
+  code: string,
+  testCases: Array<{ input: string; expected: string; isHidden?: boolean }>,
+  timeLimitMs = 5000,
+  memoryLimitKb = 512000,
+): Promise<{ testCaseResults: TestCaseResult[]; executionTimeMs: number; memoryUsedKb: number; compileTimeMs: number; codeSize: number }> {
+  const { auth } = initializeFirebase();
+  if (!auth?.currentUser) throw new Error('Sign in to run code.');
+
+  const visibleCases = testCases.filter((testCase) => !testCase.isHidden).slice(0, 3);
+  if (visibleCases.length === 0) throw new Error('This problem has no public sample tests configured.');
+
+  const idToken = await auth.currentUser.getIdToken();
+  const response = await fetch('/api/judge/execute', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+    body: JSON.stringify({
+      problemId,
+      language,
+      code,
+      testCases: visibleCases.map(({ input, expected }) => ({ input, expected, isHidden: false })),
+      timeLimitMs,
+      memoryLimitKb,
+    }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(typeof data?.error === 'string' ? data.error : `Sample test execution failed (${response.status}).`);
+  }
+
+  return {
+    testCaseResults: Array.isArray(data.testCaseResults) ? data.testCaseResults : [],
+    executionTimeMs: Number(data.executionTimeMs) || 0,
+    memoryUsedKb: Number(data.memoryUsedKb) || 0,
+    compileTimeMs: Number(data.compileTimeMs) || 0,
+    codeSize: Number(data.codeSize) || 0,
+  };
+}
+
 export async function fetchSubmissions(userId: string, problemId?: string): Promise<PracticeSubmission[]> {
   const { firestore: db } = initializeFirebase();
   if (!db) return [];
@@ -216,21 +257,18 @@ export async function getDailyChallenge(date?: string): Promise<{ date: string; 
   return challenges.find((c: any) => c.date === today) || null;
 }
 
-export async function claimDailyChallengeXp(userId: string, xpBonus: number) {
-  const { firestore: db } = initializeFirebase();
-  if (!db) return;
-  const today = new Date().toISOString().slice(0, 10);
-  const ref = doc(db, 'users', userId, 'challenges', 'daily');
-  await setDoc(ref, {
-    date: today,
-    claimed: true,
-    xpEarned: xpBonus,
-    claimedAt: serverTimestamp(),
-  }, { merge: true });
-  await updateDoc(doc(db, 'users', userId), {
-    xp: increment(xpBonus),
-    lastActive: serverTimestamp(),
+export async function claimDailyChallengeXp(userId: string) {
+  const { auth } = initializeFirebase();
+  const user = auth?.currentUser;
+  if (!user || user.uid !== userId) throw new Error('You must be signed in to claim this reward.');
+  const token = await user.getIdToken();
+  const response = await fetch('/api/challenges/claim', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
   });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || 'Unable to claim the daily challenge reward.');
+  return typeof result.xpAwarded === 'number' ? result.xpAwarded : 0;
 }
 
 export async function getDailyChallengeStatus(userId: string): Promise<{ completed: boolean; claimed: boolean; date: string } | null> {

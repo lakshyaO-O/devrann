@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Shell } from '@/components/layout/Shell';
 import { Card, CardContent } from '@/components/ui/card';
@@ -8,20 +8,20 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
   Loader2, BookmarkCheck, Clock, Brain, Shuffle, CheckCircle2, Lock,
-  Play, TrendingUp, BarChart3,
+  Play, TrendingUp, AlertCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useUser } from '@/firebase/auth/use-user';
-import { LearningHub } from '@/components/learning/LearningHub';
 import { DailyChallengeCard } from '@/components/practice/DailyChallengeCard';
 import { AchievementPopupContainer } from '@/components/practice/AchievementPopup';
 import { PracticeDashboard, ProblemBrowser } from '@/features/practice/components';
+import { PracticeWorkbench } from '@/components/practice/PracticeWorkbench';
 import { usePracticeProblems, useUserProgress, useRecentlyViewed } from '@/hooks/use-practice-problems';
 import { usePracticeStats } from '@/hooks/use-practice-stats';
 import { useDailyChallenge, useWeeklyChallenge } from '@/hooks/use-daily-challenge';
 import { useProgressiveUnlocking } from '@/hooks/use-progressive-unlocking';
 import { useAppStore } from '@/store/app-store';
-import { enrichAllProblems, getStaticProblemById, getStaticRecommendations } from '@/lib/problem-utils';
+import { getFullProblem } from '@/services/practice';
 import type { PracticeProblemDocument, Difficulty, ProblemTopic } from '@/types';
 
 import { ALL_TOPICS } from '@/features/practice/components/ProblemFilters';
@@ -161,9 +161,14 @@ export default function PracticePage() {
   const isBeginner = state.beginner.isBeginnerMode;
 
   const [selectedProblem, setSelectedProblem] = useState<PracticeProblemDocument | null>(null);
-  const [staticProblems] = useState<PracticeProblemDocument[]>(() => enrichAllProblems());
+  const [openingProblemId, setOpeningProblemId] = useState<string | null>(null);
+  const [problemOpenError, setProblemOpenError] = useState<string | null>(null);
+  const [problemOpenErrorId, setProblemOpenErrorId] = useState<string | null>(null);
+  const problemLoadRequest = useRef(0);
 
-  const { problems: fbProblems, loading: problemsLoading } = usePracticeProblems();
+  const {
+    problems, loading: problemsLoading, error: problemsError, retry: retryProblems,
+  } = usePracticeProblems();
   const { progress, loading: progressLoading } = useUserProgress(user?.uid || null);
   const { recent: recentlyViewed, track: trackRecent } = useRecentlyViewed(user?.uid || null);
 
@@ -179,11 +184,6 @@ export default function PracticePage() {
   const { unlockedDifficulties, canAccess, unlockProgress } = useProgressiveUnlocking(
     user?.uid || null, totalSolved, isBeginner,
   );
-
-  const problems = useMemo(() => {
-    if (fbProblems && fbProblems.length > 0) return fbProblems;
-    return staticProblems;
-  }, [fbProblems, staticProblems]);
 
   const solvedIds = useMemo(() => {
     if (!progress) return [];
@@ -203,8 +203,19 @@ export default function PracticePage() {
   }, [stats]);
 
   const recommendations = useMemo(() => {
-    return getStaticRecommendations(solvedIds, bookmarkedIds, weakTopics, 5);
-  }, [solvedIds, bookmarkedIds, weakTopics]);
+    return problems
+      .filter(problem => !solvedIds.includes(problem.id))
+      .map(problem => {
+        let score = 0;
+        if (weakTopics.some(topic => problem.topics?.includes(topic as ProblemTopic) || problem.category === topic)) score += 3;
+        if (bookmarkedIds.includes(problem.id)) score += 2;
+        if (problem.difficulty === 'Easy') score += 1;
+        return { problem, score };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5)
+      .map(({ problem }) => problem);
+  }, [problems, solvedIds, bookmarkedIds, weakTopics]);
 
   const topicMastery = useMemo(() => {
     const counts: Record<string, { solved: number; total: number }> = {};
@@ -242,18 +253,34 @@ export default function PracticePage() {
 
   const searchParams = useSearchParams();
 
-  const handleStartProblem = useCallback((problem: PracticeProblemDocument | null) => {
+  const handleStartProblem = useCallback(async (problem: PracticeProblemDocument | null) => {
     if (!problem) return;
     if (isBeginner && !canAccess(problem.difficulty)) return;
-    trackRecent({ id: problem.id, title: problem.title, difficulty: problem.difficulty });
-    setSelectedProblem(problem);
+    const requestId = ++problemLoadRequest.current;
+    setOpeningProblemId(problem.id);
+    setProblemOpenError(null);
+    try {
+      const fullProblem = await getFullProblem(problem.id);
+      if (requestId !== problemLoadRequest.current) return;
+      if (!fullProblem) throw new Error('The published problem content is incomplete. Please try another problem or report this issue.');
+      setSelectedProblem(fullProblem);
+      setOpeningProblemId(null);
+      setProblemOpenErrorId(null);
+      void trackRecent({ id: fullProblem.id, title: fullProblem.title, difficulty: fullProblem.difficulty })
+        .catch((cause) => console.error('[Practice] Could not update recently viewed problems', cause));
+    } catch (cause) {
+      if (requestId !== problemLoadRequest.current) return;
+      setOpeningProblemId(null);
+      setProblemOpenErrorId(problem.id);
+      setProblemOpenError(cause instanceof Error ? cause.message : 'Problem details could not be loaded.');
+    }
   }, [isBeginner, canAccess, trackRecent]);
 
   useEffect(() => {
     if (!problems.length || loading) return;
     const problemId = searchParams.get('problem');
     if (problemId) {
-      const p = problems.find(pr => pr.id === problemId) || getStaticProblemById(problemId);
+      const p = problems.find(pr => pr.id === problemId);
       if (p) handleStartProblem(p);
     }
   }, [searchParams, problems, loading, handleStartProblem]);
@@ -270,41 +297,49 @@ export default function PracticePage() {
   }, [problems, progress, isBeginner, canAccess, handleStartProblem]);
 
   const handleStartDaily = useCallback(() => {
-    if (daily?.problemId) {
-      const p = problems.find(pr => pr.id === daily.problemId) || getStaticProblemById(daily.problemId);
-      if (p) handleStartProblem(p);
-    } else {
-      handleRandomProblem();
+    if (!daily) return;
+    const problem = problems.find((item) => item.id === daily.problemId);
+    if (!problem) {
+      setProblemOpenError('Today’s challenge references a problem that is not currently published.');
+      setProblemOpenErrorId(daily.problemId);
+      return;
     }
-  }, [daily, problems, handleStartProblem, handleRandomProblem]);
+    void handleStartProblem(problem);
+  }, [daily, problems, handleStartProblem]);
 
   const handleStartWeekly = useCallback((problemId: string) => {
-    const p = problems.find(pr => pr.id === problemId) || getStaticProblemById(problemId);
+    const p = problems.find(pr => pr.id === problemId);
     if (p) handleStartProblem(p);
   }, [problems, handleStartProblem]);
 
   const handleTopicClick = useCallback((topicName: string) => {
-    const topicProblems = problems.filter(p => p.topics?.includes(topicName as any));
+    const topicProblems = problems.filter(p => p.topics?.includes(topicName as ProblemTopic));
     if (topicProblems.length > 0) {
-      setSelectedProblem(topicProblems[0]);
+      void handleStartProblem(topicProblems[0]);
     }
-  }, [problems]);
+  }, [problems, handleStartProblem]);
 
   const currentIndex = selectedProblem ? problems.findIndex(p => p.id === selectedProblem.id) : -1;
-  const onPrevProblem = useCallback(() => {
-    if (currentIndex > 0) setSelectedProblem(problems[currentIndex - 1]);
-  }, [currentIndex, problems]);
-  const onNextProblem = useCallback(() => {
-    if (currentIndex < problems.length - 1) setSelectedProblem(problems[currentIndex + 1]);
-  }, [currentIndex, problems]);
 
   if (selectedProblem) {
     return (
-      <LearningHub
+      <Shell>
+        <PracticeWorkbench
         problem={selectedProblem}
-        onBack={() => setSelectedProblem(null)}
+        onBack={() => {
+          problemLoadRequest.current++;
+          setSelectedProblem(null);
+          setProblemOpenError(null);
+          setProblemOpenErrorId(null);
+        }}
         userId={user?.uid || null}
-      />
+        username={username}
+        onPrevProblem={currentIndex > 0 ? () => { void handleStartProblem(problems[currentIndex - 1]); } : null}
+        onNextProblem={currentIndex >= 0 && currentIndex < problems.length - 1 ? () => { void handleStartProblem(problems[currentIndex + 1]); } : null}
+        hasPrev={currentIndex > 0}
+        hasNext={currentIndex >= 0 && currentIndex < problems.length - 1}
+        />
+      </Shell>
     );
   }
 
@@ -320,6 +355,32 @@ export default function PracticePage() {
     );
   }
 
+  if (openingProblemId) {
+    return (
+      <Shell>
+        <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Loading problem and editor…</p>
+        </div>
+      </Shell>
+    );
+  }
+
+  if (problemsError) {
+    return (
+      <Shell>
+        <div className="mx-auto max-w-xl rounded-lg border border-destructive/30 bg-destructive/5 p-6 text-center">
+          <AlertCircle className="mx-auto mb-3 h-6 w-6 text-destructive" />
+          <h1 className="font-semibold">Problems couldn&apos;t be loaded</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            The published problem list is temporarily unavailable. No sample problems are shown as live content.
+          </p>
+          <Button className="mt-4" variant="outline" onClick={retryProblems}>Retry</Button>
+        </div>
+      </Shell>
+    );
+  }
+
   return (
     <Shell>
       <AchievementPopupContainer
@@ -328,6 +389,21 @@ export default function PracticePage() {
       />
 
       <div className="space-y-6">
+        {problemOpenError && (
+          <div role="alert" className="flex items-center justify-between gap-4 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+            <p className="text-sm text-destructive">{problemOpenError}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const problem = problems.find((item) => item.id === problemOpenErrorId);
+                if (problem) void handleStartProblem(problem);
+              }}
+            >
+              Retry
+            </Button>
+          </div>
+        )}
         {/* Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
           <div className="space-y-1">
@@ -358,11 +434,11 @@ export default function PracticePage() {
             <p className="text-sm text-muted-foreground">
               {totalProblemsCount > 0
                 ? `${totalSolved}/${totalProblemsCount} solved`
-                : 'Loading problems...'}
+                : 'No published problems available'}
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <Button variant="outline" size="sm" onClick={handleRandomProblem} className="gap-1.5">
+            <Button variant="outline" size="sm" onClick={handleRandomProblem} disabled={problems.length === 0} className="gap-1.5">
               <Shuffle className="w-3.5 h-3.5" /> Random
             </Button>
             {totalProblemsCount > 0 && (

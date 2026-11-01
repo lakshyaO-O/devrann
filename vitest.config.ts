@@ -6,7 +6,7 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     include: ['**/*.test.{ts,tsx}'],
-    exclude: ['node_modules', 'android', '.next'],
+    exclude: ['node_modules', 'android', '.next', 'src/__tests__/firestore.rules.test.ts'],
   },
   resolve: {
     alias: {

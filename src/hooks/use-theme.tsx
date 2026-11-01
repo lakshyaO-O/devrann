@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 type Theme = 'dark' | 'light';
 
@@ -23,26 +23,26 @@ export function useTheme() {
     }
   }, []);
 
-  const toggleTheme = () => {
+  const toggleTheme = useCallback(() => {
     setTheme((prev) => {
       const next = prev === 'dark' ? 'light' : 'dark';
       localStorage.setItem(THEME_KEY, next);
       document.documentElement.classList.toggle('dark', next === 'dark');
       return next;
     });
-  };
+  }, []);
 
-  const setLight = () => {
+  const setLight = useCallback(() => {
     setTheme('light');
     localStorage.setItem(THEME_KEY, 'light');
     document.documentElement.classList.remove('dark');
-  };
+  }, []);
 
-  const setDark = () => {
+  const setDark = useCallback(() => {
     setTheme('dark');
     localStorage.setItem(THEME_KEY, 'dark');
     document.documentElement.classList.add('dark');
-  };
+  }, []);
 
   return { theme, toggleTheme, setLight, setDark, mounted };
 }

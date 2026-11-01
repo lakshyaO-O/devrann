@@ -1,11 +1,9 @@
 import { verifyAuth } from '@/lib/verify-auth';
-import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limit'; import { enforceAiQuota, aiQuotaResponse } from '@/lib/ai-quota-server';
+import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limit';
+import { enforceAiQuota, aiQuotaResponse } from '@/lib/ai-quota-server';
 
-const FALLBACK = {
-  review: '',
-  score: 0,
-  categoryScores: { correctness: 0, readability: 0, performance: 0, security: 0, maintainability: 0, bestPractices: 0 },
-};
+const MAX_CODE_LENGTH = 100_000;
+const SUPPORTED_LANGUAGES = new Set(['javascript', 'typescript', 'python', 'java', 'cpp', 'go', 'rust']);
 
 export async function POST(req: Request) {
   try {
@@ -17,27 +15,30 @@ export async function POST(req: Request) {
     if (!quotaCheck.allowed) {
       return Response.json(aiQuotaResponse(quotaCheck, 'aiCodeReview'), { status: 429 });
     }
-    const { code, language } = await req.json();
-
-    if (!code?.trim()) {
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body.code !== 'string' || !body.code.trim()) {
       return Response.json({ error: 'Code is required' }, { status: 400 });
+    }
+    if (body.code.length > MAX_CODE_LENGTH) {
+      return Response.json({ error: `Code exceeds maximum length of ${MAX_CODE_LENGTH} characters.` }, { status: 400 });
+    }
+    const language = typeof body.language === 'string' ? body.language : 'javascript';
+    if (!SUPPORTED_LANGUAGES.has(language)) {
+      return Response.json({ error: 'Unsupported programming language.' }, { status: 400 });
     }
 
     if (!process.env.GEMINI_API_KEY) {
-      return Response.json({
-        ...FALLBACK,
-        review: 'Gemini API key is not configured. Ask the dev to add `GEMINI_API_KEY` to `.env.local`.',
-      });
+      return Response.json({ error: 'AI code review is not configured.' }, { status: 503 });
     }
 
     const { codeReviewAssistant } = await import('@/ai/flows/code-review-assistant-flow');
-    const result = await codeReviewAssistant({ code, language: language || 'javascript' });
+    const result = await codeReviewAssistant({ code: body.code, language });
+    if (!result.review.trim()) {
+      return Response.json({ error: 'The AI provider returned an empty review.' }, { status: 502 });
+    }
     return Response.json(result);
   } catch (error) {
     console.error('AI code review error:', error);
-    return Response.json({
-      ...FALLBACK,
-      review: 'Code review failed. Make sure `GEMINI_API_KEY` is set in `.env.local` and try again.',
-    });
+    return Response.json({ error: 'AI code review is temporarily unavailable.' }, { status: 502 });
   }
 }

@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -14,15 +15,15 @@ import {
 } from 'lucide-react';
 import { useUser } from '@/firebase/auth/use-user';
 import { useDoc } from '@/firebase/firestore/use-doc';
-import { useFirestore } from '@/firebase/provider';
 import { useAuth } from '@/firebase/provider';
-import { updateDoc, doc, serverTimestamp, runTransaction } from 'firebase/firestore';
 import { updateProfile } from 'firebase/auth';
+import { doc, updateDoc } from 'firebase/firestore';
+import { initializeFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
-import { useTheme, THEME_KEY } from '@/hooks/use-theme';
+import { useTheme } from '@/hooks/use-theme';
 import { cn } from '@/lib/utils';
 import { validateUsername, normalizeUsername } from '@/lib/username';
-import { useUsernameAvailability, useClaimUsername } from '@/hooks/use-username';
+import { useUsernameAvailability } from '@/hooks/use-username';
 import { AccessibilitySettings } from '@/components/accessibility/AccessibilitySettings';
 import { SecuritySettings } from '@/components/security/SecuritySettings';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -32,32 +33,55 @@ import { EditorTheme, CodingLanguage } from '@/app/lib/types';
 export default function SettingsPage() {
   const { user } = useUser();
   const { data: profile } = useDoc(user ? `users/${user.uid}` : null);
-  const db = useFirestore();
   const auth = useAuth();
   const { toast } = useToast();
-  const { theme } = useTheme();
+  const { theme, setLight, setDark } = useTheme();
 
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [bio, setBio] = useState('');
+  const [interests, setInterests] = useState('');
   const [saving, setSaving] = useState(false);
   const [usernameError, setUsernameError] = useState('');
   const [usernameSuccess, setUsernameSuccess] = useState('');
-  const [lastUsernameChange, setLastUsernameChange] = useState<number>(0);
   const { available, checking: checkingUsername, checkUsername } = useUsernameAvailability();
-  const { claimUsername, loading: claimingUsername } = useClaimUsername();
   const [editorTheme, setEditorTheme] = useState<EditorTheme>('vs-dark');
   const [editorFontSize, setEditorFontSize] = useState(14);
   const [preferredLang, setPreferredLang] = useState<CodingLanguage>('javascript');
+  const [notificationPreferences, setNotificationPreferences] = useState({
+    inAppEnabled: true,
+    soundEnabled: true,
+  });
+  const [isProfilePublic, setIsProfilePublic] = useState(false);
+  const [privacySettings, setPrivacySettings] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (profile) {
       const p = profile as any;
       setUsername(p.username || user?.displayName || '');
       setEmail(p.email || user?.email || '');
+      setBio(typeof p.bio === 'string' ? p.bio : '');
+      setInterests(Array.isArray(p.interests) ? p.interests.join(', ') : '');
+      setIsProfilePublic(p.isProfilePublic === true || p.profileVisibility === 'public');
+      setPrivacySettings(Object.fromEntries(
+        Object.entries(p.privacySettings || {}).map(([key, value]) => [key, value === true]),
+      ));
+      if (['vs-dark', 'vs-light', 'monokai', 'dracula', 'nord', 'hc-black'].includes(p.editorTheme)) {
+        setEditorTheme(p.editorTheme);
+      }
+      if (typeof p.editorFontSize === 'number') setEditorFontSize(Math.min(24, Math.max(10, p.editorFontSize)));
+      if (['javascript', 'typescript', 'python', 'java', 'cpp', 'go', 'rust'].includes(p.preferredLanguage)) {
+        setPreferredLang(p.preferredLanguage);
+      }
+      const savedNotifications = p.notificationPreferences || {};
+      setNotificationPreferences({
+        inAppEnabled: typeof savedNotifications.inAppEnabled === 'boolean' ? savedNotifications.inAppEnabled : true,
+        soundEnabled: typeof savedNotifications.soundEnabled === 'boolean' ? savedNotifications.soundEnabled : true,
+      });
+      if (p.theme === 'light') setLight();
+      else if (p.theme === 'dark') setDark();
     }
-  }, [profile, user]);
+  }, [profile, user, setLight, setDark]);
 
   useEffect(() => {
     const trimmed = username.trim();
@@ -66,45 +90,119 @@ export default function SettingsPage() {
     }
   }, [username, profile, checkUsername]);
 
+  const handleProfileVisibilityChange = async (checked: boolean) => {
+    if (!user) return;
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch('/api/auth/profile-privacy', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isProfilePublic: checked }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Unable to update profile visibility.');
+      setIsProfilePublic(checked);
+      toast({
+        title: checked ? 'Profile made public' : 'Profile made private',
+        description: checked
+          ? 'Your approved profile fields are visible to other users.'
+          : 'Only you can view your profile details.',
+      });
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Unable to update profile visibility',
+        description: error instanceof Error ? error.message : 'Please try again.',
+      });
+    }
+  };
+
+  const updatePrivacySetting = async (key: string, checked: boolean) => {
+    if (!user) return;
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch('/api/auth/profile-privacy', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ privacySettings: { [key]: checked } }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Unable to update privacy setting.');
+      setPrivacySettings((current) => ({ ...current, [key]: checked }));
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Unable to update privacy setting',
+        description: error instanceof Error ? error.message : 'Please try again.',
+      });
+    }
+  };
+
   const handleSaveProfile = async () => {
-    if (!user || !db) return;
+    if (!user) return;
     setUsernameError('');
     setUsernameSuccess('');
 
     const trimmed = normalizeUsername(username.trim());
-    const validationError = validateUsername(trimmed);
-    if (validationError) {
-      setUsernameError(validationError);
+    const oldUsername = (profile as any)?.username?.toLowerCase() || '';
+    const usernameChanged = trimmed !== oldUsername;
+    if (usernameChanged) {
+      const validationError = validateUsername(trimmed);
+      if (validationError) {
+        setUsernameError(validationError);
+        return;
+      }
+    }
+
+    const normalizedInterests = [...new Set(interests.split(',').map((item) => item.trim()).filter(Boolean))];
+    if (normalizedInterests.length > 20 || normalizedInterests.some((item) => item.length > 40)) {
+      toast({ variant: 'destructive', title: 'Invalid interests', description: 'Use up to 20 comma-separated interests, each no longer than 40 characters.' });
+      return;
+    }
+    if (bio.length > 280) {
+      toast({ variant: 'destructive', title: 'Bio is too long', description: 'Bio must be 280 characters or fewer.' });
       return;
     }
 
-    if (trimmed === (profile as any)?.username?.toLowerCase()) {
-      toast({ title: 'No changes', description: 'Username is the same as before.' });
-      return;
-    }
-
-    const cooldownPeriod = 7 * 24 * 60 * 60 * 1000;
-    if (lastUsernameChange > 0 && Date.now() - lastUsernameChange < cooldownPeriod) {
-      const daysLeft = Math.ceil((cooldownPeriod - (Date.now() - lastUsernameChange)) / (24 * 60 * 60 * 1000));
-      setUsernameError(`You can change your username again in ${daysLeft} day(s)`);
+    const existingInterests = Array.isArray((profile as any)?.interests) ? (profile as any).interests : [];
+    const profileChanged = bio.trim() !== ((profile as any)?.bio || '')
+      || JSON.stringify(normalizedInterests) !== JSON.stringify(existingInterests);
+    if (!usernameChanged && !profileChanged) {
+      toast({ title: 'No changes', description: 'Your profile is already up to date.' });
       return;
     }
 
     setSaving(true);
     try {
-      const success = await claimUsername(user.uid, trimmed, (profile as any)?.username);
-      if (!success) {
-        setUsernameError('Username is already taken. Please choose another.');
-        setSaving(false);
-        return;
+      if (usernameChanged) {
+        const token = await user.getIdToken();
+        const response = await fetch('/api/auth/update-username', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ username: trimmed }),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Unable to update username.');
+        await updateProfile(user, { displayName: trimmed });
+        setUsernameSuccess('Username updated successfully!');
       }
-      await updateProfile(user, { displayName: trimmed });
-      await updateDoc(doc(db, 'users', user.uid), {
-        username: trimmed, email, updatedAt: serverTimestamp(), lastUsernameChange: serverTimestamp(),
-      });
-      setLastUsernameChange(Date.now());
-      setUsernameSuccess('Username updated successfully!');
-      toast({ title: 'Profile updated', description: 'Your username has been changed.' });
+      if (profileChanged) {
+        const token = await user.getIdToken();
+        const response = await fetch('/api/auth/profile-privacy', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ bio, interests: normalizedInterests }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || 'Unable to save profile details.');
+      }
+      toast({ title: 'Profile updated', description: 'Your profile details have been saved.' });
     } catch (err: any) {
       toast({ variant: 'destructive', title: 'Update failed', description: err.message });
     } finally {
@@ -115,6 +213,50 @@ export default function SettingsPage() {
   const handleLogout = async () => {
     if (auth) await auth.signOut();
     window.location.href = '/';
+  };
+
+  const savePreferences = async () => {
+    if (!user) return;
+    const { firestore: db } = initializeFirebase();
+    if (!db) {
+      toast({ variant: 'destructive', title: 'Settings unavailable', description: 'Firebase is not initialized.' });
+      return;
+    }
+    setSaving(true);
+    try {
+      await updateDoc(doc(db, 'users', user.uid), {
+        editorTheme,
+        editorFontSize,
+        preferredLanguage: preferredLang,
+        notificationPreferences,
+      });
+      toast({ title: 'Settings saved', description: 'Your editor and notification preferences will follow you across devices.' });
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Unable to save settings',
+        description: error instanceof Error ? error.message : 'Please try again.',
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveTheme = async (value: string) => {
+    if (value === 'dark') setDark();
+    else setLight();
+    if (!user) return;
+    const { firestore: db } = initializeFirebase();
+    if (!db) return;
+    try {
+      await updateDoc(doc(db, 'users', user.uid), { theme: value });
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Theme saved on this device only',
+        description: error instanceof Error ? error.message : 'Unable to sync your theme.',
+      });
+    }
   };
 
   const initials = (user?.displayName || user?.email || '??')
@@ -190,9 +332,58 @@ export default function SettingsPage() {
                   </div>
                   <div>
                     <Label htmlFor="email" className="text-xs font-bold uppercase tracking-widest">Email</Label>
-                    <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="bg-muted/50 border-border mt-1" />
+                    <Input id="email" type="email" value={email} disabled className="bg-muted/50 border-border mt-1" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="bio" className="text-xs font-bold uppercase tracking-widest">Bio</Label>
+                    <Textarea
+                      id="bio"
+                      value={bio}
+                      onChange={(event) => setBio(event.target.value)}
+                      maxLength={280}
+                      placeholder="Tell other problem solvers a little about yourself."
+                    />
+                    <p className="text-[10px] text-muted-foreground text-right">{bio.length}/280</p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="interests" className="text-xs font-bold uppercase tracking-widest">Coding interests</Label>
+                    <Input
+                      id="interests"
+                      value={interests}
+                      onChange={(event) => setInterests(event.target.value)}
+                      placeholder="Algorithms, graphs, dynamic programming"
+                      maxLength={840}
+                    />
+                    <p className="text-[10px] text-muted-foreground">Separate up to 20 interests with commas.</p>
                   </div>
                 </div>
+                <SettingRow
+                  icon={<User className="w-4 h-4 text-primary" />}
+                  label="Public profile"
+                  description="Allow others to see approved profile fields. Email and account settings remain private."
+                  checked={isProfilePublic}
+                  onToggle={handleProfileVisibilityChange}
+                />
+                {([
+                  ['showRating', 'Show rating'],
+                  ['showStats', 'Show statistics'],
+                  ['showActivity', 'Show activity'],
+                  ['showAchievements', 'Show achievements'],
+                  ['showFriends', 'Show friends'],
+                  ['showSocialLinks', 'Show social links'],
+                  ['showMatchHistory', 'Show match history'],
+                  ['showTopicMastery', 'Show topic mastery'],
+                  ['showBadges', 'Show badges'],
+                ] as const).map(([key, label]) => (
+                  <SettingRow
+                    key={key}
+                    icon={<Shield className="w-4 h-4 text-primary" />}
+                    label={label}
+                    description="Allow this section on your public profile."
+                    checked={privacySettings[key] === true}
+                    onToggle={(checked) => updatePrivacySetting(key, checked)}
+                  />
+                ))}
                 <div className="flex justify-end">
                   <Button onClick={handleSaveProfile} disabled={saving} className="gap-2">
                     {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
@@ -211,8 +402,8 @@ export default function SettingsPage() {
                   <p className="text-xs text-muted-foreground">Customize the look and feel of the arena.</p>
                 </div>
                 <div className="grid grid-cols-2 gap-4 max-w-md">
-                  <ThemeOption current={theme} value="dark" icon={<Moon className="w-8 h-8 text-primary" />} label="Dark" />
-                  <ThemeOption current={theme} value="light" icon={<Sun className="w-8 h-8 text-amber-500" />} label="Light" />
+                  <ThemeOption current={theme} value="dark" icon={<Moon className="w-8 h-8 text-primary" />} label="Dark" onSelect={saveTheme} />
+                  <ThemeOption current={theme} value="light" icon={<Sun className="w-8 h-8 text-amber-500" />} label="Light" onSelect={saveTheme} />
                 </div>
               </CardContent>
             </Card>
@@ -264,6 +455,12 @@ export default function SettingsPage() {
                     </Select>
                   </div>
                 </div>
+                <div className="flex justify-end">
+                  <Button onClick={() => void savePreferences()} disabled={saving} className="gap-2">
+                    {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    {saving ? 'Saving...' : 'Save editor settings'}
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -271,19 +468,25 @@ export default function SettingsPage() {
             <Card className="bg-card/50 border-border">
               <CardContent className="p-6 space-y-6">
                 <SettingRow
-                  icon={notificationsEnabled ? <Bell className="w-4 h-4 text-primary" /> : <Bell className="w-4 h-4 text-muted-foreground" />}
+                  icon={notificationPreferences.inAppEnabled ? <Bell className="w-4 h-4 text-primary" /> : <Bell className="w-4 h-4 text-muted-foreground" />}
                   label="Push Notifications"
                   description="Receive in-app notifications for matches, friend requests, and events."
-                  checked={notificationsEnabled}
-                  onToggle={setNotificationsEnabled}
+                  checked={notificationPreferences.inAppEnabled}
+                  onToggle={(inAppEnabled) => setNotificationPreferences((current) => ({ ...current, inAppEnabled }))}
                 />
                 <SettingRow
-                  icon={soundEnabled ? <Volume2 className="w-4 h-4 text-primary" /> : <VolumeX className="w-4 h-4 text-muted-foreground" />}
+                  icon={notificationPreferences.soundEnabled ? <Volume2 className="w-4 h-4 text-primary" /> : <VolumeX className="w-4 h-4 text-muted-foreground" />}
                   label="Sound Effects"
                   description="Play sounds for incoming matches, messages, and alerts."
-                  checked={soundEnabled}
-                  onToggle={setSoundEnabled}
+                  checked={notificationPreferences.soundEnabled}
+                  onToggle={(soundEnabled) => setNotificationPreferences((current) => ({ ...current, soundEnabled }))}
                 />
+                <div className="flex justify-end">
+                  <Button onClick={() => void savePreferences()} disabled={saving} className="gap-2">
+                    {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    {saving ? 'Saving...' : 'Save notification settings'}
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -320,22 +523,18 @@ export default function SettingsPage() {
   );
 }
 
-function ThemeOption({ current, value, icon, label }: { current: string; value: string; icon: React.ReactNode; label: string }) {
-  const setTheme = () => {
-    if (value === 'dark') {
-      document.documentElement.classList.add('dark');
-      document.documentElement.classList.remove('light');
-    } else {
-      document.documentElement.classList.remove('dark');
-      document.documentElement.classList.add('light');
-    }
-    localStorage.setItem(THEME_KEY, value);
-    window.dispatchEvent(new Event('storage'));
-  };
-
+function ThemeOption({
+  current, value, icon, label, onSelect,
+}: {
+  current: string;
+  value: string;
+  icon: React.ReactNode;
+  label: string;
+  onSelect: (value: string) => void;
+}) {
   return (
     <button
-      onClick={setTheme}
+      onClick={() => onSelect(value)}
       className={cn(
         'flex flex-col items-center gap-3 p-4 rounded-xl border-2 transition-all',
         current === value ? 'border-primary bg-primary/5' : 'border-border hover:border-muted-foreground/30'

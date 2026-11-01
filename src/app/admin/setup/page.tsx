@@ -3,6 +3,8 @@
 import React, { useState } from 'react';
 import { Shield, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { useUser } from '@/firebase/auth/use-user';
 import { useAuth } from '@/firebase/provider';
@@ -13,6 +15,7 @@ export default function AdminSetupPage() {
   const auth = useAuth();
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [message, setMessage] = useState('');
+  const [setupSecret, setSetupSecret] = useState('');
 
   const handleSetup = async () => {
     if (!auth || !user) return;
@@ -22,7 +25,11 @@ export default function AdminSetupPage() {
       const token = await user.getIdToken();
       const res = await fetch('/api/admin/setup', {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          ...(setupSecret ? { 'X-Setup-Secret': setupSecret } : {}),
+        },
       });
       const text = await res.text();
       let data: any;
@@ -73,6 +80,20 @@ export default function AdminSetupPage() {
               <p><span className="text-muted-foreground">Display:</span> {user.displayName || '—'}</p>
             </div>
           )}
+
+          <div className="space-y-2">
+            <Label htmlFor="setup-secret">Setup secret</Label>
+            <Input
+              id="setup-secret"
+              type="password"
+              autoComplete="off"
+              value={setupSecret}
+              onChange={(event) => setSetupSecret(event.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Bootstrap requires this secret and the verified email authorized by the server allowlist.
+            </p>
+          </div>
 
           {status === 'success' && (
             <div className="flex items-start gap-2 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30">

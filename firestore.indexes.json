@@ -1,10 +1,19 @@
 {
   "indexes": [
     {
-      "collectionGroup": "auditLogs",
+      "collectionGroup": "publicProfiles",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "timestamp", "order": "DESCENDING" }
+        { "fieldPath": "isPublic", "order": "ASCENDING" },
+        { "fieldPath": "username", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "publicProfiles",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "isPublic", "order": "ASCENDING" },
+        { "fieldPath": "privacySettings.showRating", "order": "ASCENDING" }
       ]
     },
     {
@@ -56,27 +65,6 @@
       ]
     },
     {
-      "collectionGroup": "notifications",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "friends",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "addedAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "blocked",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "blockedAt", "order": "DESCENDING" }
-      ]
-    },
-    {
       "collectionGroup": "matchmaking",
       "queryScope": "COLLECTION",
       "fields": [
@@ -97,10 +85,43 @@
       ]
     },
     {
-      "collectionGroup": "battles",
+      "collectionGroup": "matchmaking",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "status", "order": "ASCENDING" }
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "rated", "order": "ASCENDING" },
+        { "fieldPath": "difficulty", "order": "ASCENDING" },
+        { "fieldPath": "timeControl", "order": "ASCENDING" },
+        { "fieldPath": "preferredLanguage", "order": "ASCENDING" },
+        { "fieldPath": "category", "order": "ASCENDING" },
+        { "fieldPath": "rating", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "matchmaking",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "rated", "order": "ASCENDING" },
+        { "fieldPath": "difficulty", "order": "ASCENDING" },
+        { "fieldPath": "timeControl", "order": "ASCENDING" },
+        { "fieldPath": "preferredLanguage", "order": "ASCENDING" },
+        { "fieldPath": "region", "order": "ASCENDING" },
+        { "fieldPath": "rating", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "matchmaking",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "rated", "order": "ASCENDING" },
+        { "fieldPath": "difficulty", "order": "ASCENDING" },
+        { "fieldPath": "timeControl", "order": "ASCENDING" },
+        { "fieldPath": "preferredLanguage", "order": "ASCENDING" },
+        { "fieldPath": "category", "order": "ASCENDING" },
+        { "fieldPath": "region", "order": "ASCENDING" },
+        { "fieldPath": "rating", "order": "ASCENDING" }
       ]
     },
     {
@@ -120,60 +141,11 @@
       ]
     },
     {
-      "collectionGroup": "usernames",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "name", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "practiceProgress",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "solved", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "submissions",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "submittedAt", "order": "DESCENDING" }
-      ]
-    },
-    {
       "collectionGroup": "submissions",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "problemId", "order": "ASCENDING" },
         { "fieldPath": "submittedAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "recentlyViewed",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "viewedAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "discussion",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "problems",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "title", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "communityPosts",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
     },
     {
@@ -214,13 +186,6 @@
       "fields": [
         { "fieldPath": "available", "order": "ASCENDING" },
         { "fieldPath": "rating", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "codeShares",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
     },
     {
@@ -275,13 +240,6 @@
       "collectionGroup": "forum",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "lastActivity", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "forum",
-      "queryScope": "COLLECTION",
-      "fields": [
         { "fieldPath": "category", "order": "ASCENDING" },
         { "fieldPath": "lastActivity", "order": "DESCENDING" }
       ]
@@ -295,32 +253,11 @@
       ]
     },
     {
-      "collectionGroup": "dailyFeed",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "projects",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
       "collectionGroup": "projects",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "userId", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "contestCalendar",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "startDate", "order": "ASCENDING" }
       ]
     },
     {
@@ -484,21 +421,26 @@
       "collectionGroup": "users",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "lastActive", "order": "ASCENDING" }
+        { "fieldPath": "privacySettings.showRating", "order": "ASCENDING" },
+        { "fieldPath": "wins", "order": "ASCENDING" },
+        { "fieldPath": "rating", "order": "DESCENDING" }
       ]
     },
     {
       "collectionGroup": "users",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "createdAt", "order": "ASCENDING" }
+        { "fieldPath": "privacySettings.showRating", "order": "ASCENDING" },
+        { "fieldPath": "rating", "order": "DESCENDING" },
+        { "fieldPath": "wins", "order": "DESCENDING" }
       ]
     },
     {
-      "collectionGroup": "reports",
+      "collectionGroup": "contests",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "createdAt", "order": "ASCENDING" }
+        { "fieldPath": "isPublic", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "ASCENDING" }
       ]
     },
     {

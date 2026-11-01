@@ -15,8 +15,11 @@ export function useCollection(query: Query | null) {
   const [data, setData] = useState<any[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [retryToken, setRetryToken] = useState(0);
 
   useEffect(() => {
+    setLoading(true);
+    setError(null);
     if (!query) {
       setData(null);
       setLoading(false);
@@ -39,13 +42,14 @@ export function useCollection(query: Query | null) {
           operation: 'list',
         });
         errorEmitter.emit('permission-error', permissionError);
+        setData(null);
         setError(err);
         setLoading(false);
       }
     );
 
     return () => unsubscribe();
-  }, [query]);
+  }, [query, retryToken]);
 
-  return { data, loading, error };
+  return { data, loading, error, retry: () => setRetryToken((token) => token + 1) };
 }

@@ -48,11 +48,12 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    label: 'CODING',
+    label: 'PRACTICE',
     items: [
       { href: '/practice', label: 'Practice', icon: Code2 },
       { href: '/arena', label: 'Arena', icon: Swords },
-      { href: '/learning', label: 'Learn', icon: GraduationCap },
+      { href: '/problems', label: 'Problems', icon: BookOpen },
+      { href: '/challenges', label: 'Challenges', icon: Target },
       { href: '/leaderboard', label: 'Leaderboard', icon: Trophy },
     ],
   },
@@ -61,13 +62,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: '/ai-mentor', label: 'AI Mentor', icon: Sparkles },
       { href: '/ai-code-review', label: 'Code Review', icon: Code2 },
-      { href: '/problems', label: 'Problems', icon: BookOpen },
-      { href: '/challenges', label: 'Challenges', icon: Target },
-    ],
-  },
-  {
-    label: 'LEARN',
-    items: [
+      { href: '/learning', label: 'Learn', icon: GraduationCap },
       { href: '/learn/concepts', label: 'Encyclopedia', icon: BookOpen },
       { href: '/analytics/learning', label: 'Analytics', icon: BarChart3 },
     ],
@@ -96,11 +91,7 @@ const NAV_SECTIONS: NavSection[] = [
 
 function PageTransition({ children }: { children: React.ReactNode }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-    >
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.16 }}>
       {children}
     </motion.div>
   );
@@ -119,7 +110,7 @@ function TopHeader({ user, unread }: { user: any; unread: number }) {
   }, [user?.uid]);
 
   return (
-    <div className="sticky top-0 z-40 flex items-center justify-end gap-2 px-6 h-11 border-b border-border/40 bg-background/70 backdrop-blur-lg shrink-0">
+    <div className="sticky top-0 z-40 flex items-center justify-end gap-2 px-6 h-11 border-b border-border bg-background shrink-0">
       {user && (
         <Link
           href="/shop"
@@ -214,9 +205,9 @@ function NavLink({
 }) {
   return (
     <motion.div
-      initial={{ opacity: 0, x: -8 }}
+      initial={{ opacity: 0 }}
       animate={{ opacity: 1, x: 0 }}
-      transition={{ delay: index * 0.03, duration: 0.2, ease: 'easeOut' }}
+      transition={{ delay: index * 0.02, duration: 0.14, ease: 'easeOut' }}
     >
       <Link
         href={item.href}
@@ -239,7 +230,7 @@ function NavLink({
           'w-4 h-4 shrink-0 transition-all duration-200',
           isActive
             ? 'text-primary'
-            : 'text-muted-foreground/60 group-hover:text-foreground/80 group-hover:scale-110 group-hover:-rotate-3'
+            : 'text-muted-foreground/60 group-hover:text-foreground/80'
         )} />
         {!collapsed && (
           <>

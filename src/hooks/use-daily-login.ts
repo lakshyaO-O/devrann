@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { initializeFirebase } from '@/firebase';
-import { doc, getDoc, updateDoc, increment, serverTimestamp, collection, addDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, increment, serverTimestamp } from 'firebase/firestore';
 import { DailyReward } from '@/app/lib/types';
 
 const DAILY_REWARDS: DailyReward[] = [
@@ -82,18 +82,6 @@ export function useDailyLogin(userId: string | null) {
         lastRewardDay: newDay,
         lastActive: serverTimestamp(),
       });
-
-      if (newStreak === 7) {
-        await addDoc(collection(db, 'users', userId, 'notifications'), {
-          userId,
-          type: 'achievement_unlock',
-          title: 'Week Warrior!',
-          message: 'You claimed a full week of daily rewards!',
-          data: { reward: 'weekly_bonus' },
-          read: false,
-          createdAt: serverTimestamp(),
-        });
-      }
 
       setStreak(newStreak);
       setCurrentDay(newDay);

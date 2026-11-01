@@ -278,14 +278,16 @@ export function useBlockPlayerFromRoom() {
 export function useSendRoomInvite() {
   const sendInvite = useCallback(async (params: { roomId: string; roomCode: string; fromUserId: string; fromUsername: string; toUserId: string }) => {
     try {
-      const { firestore: db } = initializeFirebase();
-      if (!db) return false;
-      await addDoc(collection(db, 'users', params.toUserId, 'notifications'), {
-        userId: params.toUserId, type: 'room_invite', title: 'Room Invite',
-        message: `${params.fromUsername} invited you to join their room`,
-        data: { roomId: params.roomId, roomCode: params.roomCode, fromUserId: params.fromUserId, fromUsername: params.fromUsername },
-        read: false, createdAt: serverTimestamp(),
+      const { auth } = initializeFirebase();
+      const user = auth?.currentUser;
+      if (!user || user.uid !== params.fromUserId) return false;
+      const token = await user.getIdToken();
+      const response = await fetch('/api/rooms/invite', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomId: params.roomId, roomCode: params.roomCode, toUserId: params.toUserId }),
       });
+      if (!response.ok) return false;
       return true;
     } catch { return false; }
   }, []);

@@ -19,8 +19,9 @@ import { cn, getTier, getTierColor } from '@/lib/utils';
 import { useUser } from '@/firebase/auth/use-user';
 import { ReportButton } from '@/components/admin/ReportButton';
 import { initializeFirebase } from '@/firebase';
-import { doc, getDoc, collection, query, orderBy, limit, getDocs, where, setDoc, serverTimestamp, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 import type { UserProfile } from '@/types';
+import { useSendFriendRequest, useRemoveFriend } from '@/hooks/use-friends';
 
 export default function PublicProfilePage() {
   const params = useParams();
@@ -30,21 +31,28 @@ export default function PublicProfilePage() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [following, setFollowing] = useState(false);
+  const [requestSent, setRequestSent] = useState(false);
   const [friendActionLoading, setFriendActionLoading] = useState(false);
+  const { sendRequest } = useSendFriendRequest();
+  const { removeFriend } = useRemoveFriend();
 
   useEffect(() => {
     if (!username) return;
     const load = async () => {
       try {
-        const { firestore: db } = initializeFirebase();
-        if (!db) { setLoading(false); return; }
-        const q = query(collection(db, 'users'), where('username', '==', username), limit(1));
-        const snap = await getDocs(q);
-        if (!snap.empty) {
-          const data = { id: snap.docs[0].id, ...snap.docs[0].data() } as UserProfile;
+        const token = currentUser ? await currentUser.getIdToken() : null;
+        const response = await fetch(`/api/public/profiles?username=${encodeURIComponent(username)}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          cache: 'no-store',
+        });
+        if (response.ok) {
+          const result = await response.json();
+          const data = result.profile as UserProfile;
           setProfile(data);
 
           if (currentUser && currentUser.uid !== data.uid) {
+            const { firestore: db } = initializeFirebase();
+            if (!db) { setLoading(false); return; }
             const friendRef = doc(db, 'users', currentUser.uid, 'friends', data.uid);
             const friendSnap = await getDoc(friendRef);
             setFollowing(friendSnap.exists());
@@ -60,15 +68,18 @@ export default function PublicProfilePage() {
     if (!currentUser || !profile) return;
     setFriendActionLoading(true);
     try {
-      const { firestore: db } = initializeFirebase();
-      if (!db) return;
       if (following) {
-        await setDoc(doc(db, 'users', currentUser.uid, 'friends', profile.uid), {}, { merge: true });
-        await setDoc(doc(db, 'users', profile.uid, 'friends', currentUser.uid), {}, { merge: true });
+        const success = await removeFriend(currentUser.uid, profile.uid);
+        if (!success) throw new Error('Unable to remove friend.');
+        setFollowing(false);
       } else {
-        await setDoc(doc(db, 'users', currentUser.uid, 'friends', profile.uid), {}, { merge: true });
+        const success = await sendRequest({
+          fromUserId: currentUser.uid, fromUsername: currentUser.displayName || 'Player',
+          fromPhotoURL: currentUser.photoURL || '', toUserId: profile.uid, toUsername: profile.username,
+        });
+        if (!success) throw new Error('Unable to send friend request.');
+        setRequestSent(true);
       }
-      setFollowing(!following);
     } catch { /* ignore */ }
     setFriendActionLoading(false);
   };
@@ -95,8 +106,10 @@ export default function PublicProfilePage() {
     );
   }
 
-  const tier = getTier(profile.rating || 1200);
-  const tierColor = getTierColor(tier);
+  const showRating = profile.privacySettings?.showRating === true;
+  const showStats = profile.privacySettings?.showStats === true;
+  const tier = showRating ? getTier(profile.rating) : null;
+  const tierColor = tier ? getTierColor(tier) : '';
   const winRate = (profile.wins + profile.losses) > 0
     ? Math.round((profile.wins / (profile.wins + profile.losses)) * 100)
     : 0;
@@ -116,32 +129,32 @@ export default function PublicProfilePage() {
                     {initials}
                   </AvatarFallback>
                 </Avatar>
-                <div className="absolute -bottom-1 -right-1 bg-secondary px-3 py-1 rounded-full text-[11px] font-medium uppercase tracking-wider text-white">
+                {showStats && <div className="absolute -bottom-1 -right-1 bg-secondary px-3 py-1 rounded-full text-[11px] font-medium uppercase tracking-wider text-white">
                   LVL {level}
-                </div>
+                </div>}
               </div>
               <div className="flex-1 space-y-3">
                 <div className="flex items-center gap-3 flex-wrap">
                   <h1 className="text-2xl md:text-3xl font-headline font-bold">{profile.username}</h1>
-                  <Badge variant="outline" className={cn('text-[11px] uppercase tracking-wider', tierColor)}>
+                  {showRating && tier && <Badge variant="outline" className={cn('text-[11px] uppercase tracking-wider', tierColor)}>
                     <Medal className="w-3 h-3 mr-1" /> {tier}
-                  </Badge>
+                  </Badge>}
                   <Badge variant="outline" className="text-[11px] uppercase tracking-wider">
                     @{profile.username}
                   </Badge>
                 </div>
                 {profile.title && <p className="text-sm text-foreground">{profile.title}</p>}
                 {profile.bio && <p className="text-sm text-muted-foreground max-w-xl">{profile.bio}</p>}
-                <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+                {showStats && <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
                   <span className="flex items-center gap-1"><Zap className="w-3 h-3 text-primary" /> {(profile.xp || 0).toLocaleString()} XP</span>
                   <span className="flex items-center gap-1"><Flame className="w-3 h-3 text-orange-400" /> {profile.streak || 0} day streak</span>
                   <span className="flex items-center gap-1"><Target className="w-3 h-3" /> {(profile.problemsSolved || 0)} solved</span>
-                </div>
+                </div>}
                 <div className="flex items-center gap-2 mt-2">
                   {currentUser && currentUser.uid !== profile.uid && (
                     <>
-                      <Button onClick={handleFollow} variant={following ? 'outline' : 'default'} className="gap-2" disabled={friendActionLoading}>
-                        <UserPlus className="w-4 h-4" /> {following ? 'Friends' : 'Add Friend'}
+                      <Button onClick={handleFollow} variant={following ? 'outline' : 'default'} className="gap-2" disabled={friendActionLoading || requestSent}>
+                        <UserPlus className="w-4 h-4" /> {following ? 'Remove Friend' : requestSent ? 'Request Sent' : 'Add Friend'}
                       </Button>
                       <Button variant="outline" className="gap-2" onClick={() => router.push(`/chats?userId=${profile.uid}`)}>
                         <MessageCircle className="w-3 h-3" /> Message
@@ -178,13 +191,15 @@ export default function PublicProfilePage() {
         </Card>
 
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
-          <StatBox label="Rating" value={profile.rating || 1200} color="text-primary" />
-          <StatBox label="Wins" value={profile.wins || 0} color="text-emerald-400" />
-          <StatBox label="Losses" value={profile.losses || 0} color="text-destructive" />
-          <StatBox label="Win Rate" value={`${winRate}%`} color="text-secondary" />
-          <StatBox label="Streak" value={profile.streak || 0} color="text-orange-400" />
-          <StatBox label="XP" value={(profile.xp || 0).toLocaleString()} color="text-yellow-400" />
-          <StatBox label="Solved" value={profile.problemsSolved || 0} color="text-cyan-400" />
+          {showRating && <StatBox label="Rating" value={profile.rating} color="text-primary" />}
+          {showStats && <>
+            <StatBox label="Wins" value={profile.wins || 0} color="text-emerald-400" />
+            <StatBox label="Losses" value={profile.losses || 0} color="text-destructive" />
+            <StatBox label="Win Rate" value={`${winRate}%`} color="text-secondary" />
+            <StatBox label="Streak" value={profile.streak || 0} color="text-orange-400" />
+            <StatBox label="XP" value={(profile.xp || 0).toLocaleString()} color="text-yellow-400" />
+            <StatBox label="Solved" value={profile.problemsSolved || 0} color="text-cyan-400" />
+          </>}
         </div>
 
         <Tabs defaultValue="stats">

@@ -1,116 +1,163 @@
 'use client';
 
-import { motion } from 'framer-motion';
-import {
-  Sword, Code2, Trophy, Zap, Users, BarChart3, Timer, MessageSquare, Sparkles,
-} from 'lucide-react';
+import Link from 'next/link';
+import { ArrowRight, CalendarDays, Code2, Trophy, Users } from 'lucide-react';
+import type { PublicOverview } from './public-overview';
 
-const features = [
-  {
-    icon: Sword, title: 'Real-time 1v1 Battles',
-    desc: 'Match against opponents at your skill level. Solve the same problem faster and with fewer errors to win. ELO rating adjusts after every match.',
-  },
-  {
-    icon: Code2, title: 'Multi-language Editor',
-    desc: 'Built-in code editor with syntax highlighting for JavaScript, TypeScript, Python, Java, and C++. Write, test, and submit without leaving the browser.',
-  },
-  {
-    icon: Zap, title: 'AI-Powered Feedback',
-    desc: 'Get instant code reviews, debugging assistance, and problem hints powered by Gemini. Learn from your mistakes with detailed explanations.',
-  },
-  {
-    icon: Trophy, title: 'ELO Ranking & Tiers',
-    desc: 'Every battle affects your ELO rating. Climb through Beginner to Grandmaster tiers. Compete on global and weekly leaderboards.',
-  },
-  {
-    icon: Users, title: 'Private Rooms & Study Groups',
-    desc: 'Create private rooms to battle friends. Form study groups to solve problems collaboratively. Practice without ELO pressure in study rooms.',
-  },
-  {
-    icon: BarChart3, title: 'Progress Tracking',
-    desc: 'Detailed stats, coding heatmaps, win/loss records, and problem-solving trends track your growth over time.',
-  },
-];
-
-const containerVariants = {
-  hidden: { opacity: 0 },
-  visible: { opacity: 1, transition: { staggerChildren: 0.1 } },
-};
-
-const itemVariants = {
-  hidden: { opacity: 0, y: 40 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] as const } },
-};
-
-const iconColors = [
-  'from-orange-500/20 to-red-500/10 text-orange-400',
-  'from-blue-500/20 to-cyan-500/10 text-blue-400',
-  'from-purple-500/20 to-pink-500/10 text-purple-400',
-  'from-yellow-500/20 to-amber-500/10 text-yellow-400',
-  'from-emerald-500/20 to-green-500/10 text-emerald-400',
-  'from-primary/20 to-blue-500/10 text-primary',
-];
-
-function cn(...classes: (string | false | undefined | null)[]) {
-  return classes.filter(Boolean).join(' ');
+interface FeaturesSectionProps {
+  overview: PublicOverview | null;
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
 }
 
-export function FeaturesSection() {
+function PanelSkeleton({ rows = 3 }: { rows?: number }) {
   return (
-    <section className="relative py-32 border-t border-border/40 overflow-hidden">
-      <div className="absolute inset-0 bg-grid opacity-20" />
-      <div className="absolute inset-0 bg-ambient-alt" />
-      <div className="container px-4 mx-auto relative z-10">
-        <motion.div
-          className="text-center mb-20"
-          initial={{ opacity: 0, y: 30 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: '-100px' }}
-          transition={{ duration: 0.6 }}
-        >
-          <div className="inline-flex items-center gap-2 px-3 py-1 glass-badge text-primary text-xs font-bold uppercase tracking-widest mb-6">
-            <Sparkles className="w-3 h-3" />
-            Platform Features
+    <div className="animate-pulse divide-y divide-border" aria-label="Loading live platform data">
+      {Array.from({ length: rows }, (_, index) => (
+        <div className="flex items-center gap-3 px-4 py-3" key={index}>
+          <div className="h-8 w-8 rounded-md bg-muted" />
+          <div className="flex-1 space-y-2">
+            <div className="h-3 w-2/3 rounded bg-muted" />
+            <div className="h-2.5 w-1/3 rounded bg-muted" />
           </div>
-          <h2 className="text-3xl sm:text-4xl md:text-5xl font-headline font-bold tracking-tight text-foreground mb-4">
-            Everything you need to{' '}
-            <span className="text-gradient">compete</span>
-          </h2>
-          <p className="max-w-2xl mx-auto text-muted-foreground text-base leading-relaxed">
-            Practice problems, real-time battles, AI coaching, and rankings â€” all in one platform.
-          </p>
-        </motion.div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
-        <motion.div
-          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
-          variants={containerVariants}
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, margin: '-50px' }}
-        >
-          {features.map((feature, idx) => (
-            <motion.div
-              key={feature.title}
-              variants={itemVariants}
-              className="group relative p-8 rounded-xl glass-card overflow-hidden"
-            >
-              <span className="glass-halo rounded-xl" aria-hidden />
-              <div className={cn(
-                'inline-flex p-3 rounded-xl bg-gradient-to-br mb-5 border border-white/10 backdrop-blur-sm',
-                iconColors[idx]
-              )}>
-                <feature.icon className="w-6 h-6" />
+function EmptyPanel({ children }: { children: React.ReactNode }) {
+  return <p className="px-4 py-5 text-sm text-muted-foreground">{children}</p>;
+}
+
+export function FeaturesSection({ overview, loading, error, onRetry }: FeaturesSectionProps) {
+  return (
+    <section className="border-b border-border bg-background py-16 sm:py-20">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-primary">Live platform data</p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">A place to practice and compete</h2>
+            <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+              Counts and listings come from published problems, registered accounts, public ratings, and scheduled contests.
+            </p>
+          </div>
+          {error && (
+            <button type="button" onClick={onRetry} className="rounded-md border border-border px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-muted">
+              Retry loading live data
+            </button>
+          )}
+        </div>
+
+        {error ? (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-5 text-sm text-muted-foreground" role="alert">
+            Live platform data is temporarily unavailable. Please try again.
+          </div>
+        ) : (
+          <>
+            <div className="mb-4 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-lg border border-border bg-card px-4 py-3">
+                <p className="text-xs text-muted-foreground">Registered accounts</p>
+                {loading || !overview ? (
+                  <div className="mt-2 h-6 w-20 animate-pulse rounded bg-muted" />
+                ) : (
+                  <p className="mt-1 text-xl font-semibold tabular-nums">{overview.registeredUsers.toLocaleString()}</p>
+                )}
               </div>
+              <div className="rounded-lg border border-border bg-card px-4 py-3">
+                <p className="text-xs text-muted-foreground">Published problems</p>
+                {loading || !overview ? (
+                  <div className="mt-2 h-6 w-20 animate-pulse rounded bg-muted" />
+                ) : (
+                  <p className="mt-1 text-xl font-semibold tabular-nums">{overview.publishedProblems.toLocaleString()}</p>
+                )}
+              </div>
+            </div>
 
-              <h3 className="text-lg font-headline font-bold text-foreground tracking-tight mb-3">
-                {feature.title}
-              </h3>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                {feature.desc}
-              </p>
-            </motion.div>
-          ))}
-        </motion.div>
+            <div className="grid gap-4 lg:grid-cols-[1.25fr_0.85fr_0.9fr]">
+              <section className="overflow-hidden rounded-lg border border-border bg-card" aria-labelledby="available-problems-heading">
+                <div className="flex items-center justify-between border-b border-border px-4 py-3">
+                  <h3 id="available-problems-heading" className="flex items-center gap-2 text-sm font-semibold"><Code2 className="h-4 w-4 text-primary" /> Available problems</h3>
+                  <Link href="/problems" className="text-xs text-muted-foreground transition-colors hover:text-foreground">Browse all</Link>
+                </div>
+                {loading ? <PanelSkeleton /> : overview?.problems.length ? (
+                  <div className="divide-y divide-border">
+                    {overview.problems.map((problem) => (
+                      <Link href={`/practice?problem=${encodeURIComponent(problem.id)}`} key={problem.id} className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/40">
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-background">
+                          <Code2 className="h-4 w-4 text-muted-foreground" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium">{problem.title}</span>
+                          <span className="mt-0.5 block truncate text-xs text-muted-foreground">{problem.category || 'Published challenge'}</span>
+                        </span>
+                        <span className="text-xs text-muted-foreground">{problem.difficulty || 'Unrated'}</span>
+                      </Link>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyPanel>No problems have been published yet.</EmptyPanel>
+                )}
+                <Link href="/practice" className="flex items-center justify-between border-t border-border px-4 py-3 text-xs font-medium text-primary transition-colors hover:bg-muted/40">
+                  Go to practice <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </section>
+
+              <section className="overflow-hidden rounded-lg border border-border bg-card" aria-labelledby="public-ratings-heading">
+                <div className="flex items-center justify-between border-b border-border px-4 py-3">
+                  <h3 id="public-ratings-heading" className="flex items-center gap-2 text-sm font-semibold"><Trophy className="h-4 w-4 text-primary" /> Public ratings</h3>
+                  <span className="text-[11px] text-muted-foreground">Opted in</span>
+                </div>
+                {loading ? <PanelSkeleton /> : overview?.leaderboard.length ? (
+                  <div className="divide-y divide-border">
+                    {overview.leaderboard.map((player, index) => (
+                      <Link href={`/u/${encodeURIComponent(player.username)}`} key={player.id} className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/40">
+                        <span className="w-5 font-mono text-xs text-muted-foreground">{String(index + 1).padStart(2, '0')}</span>
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium">{player.username}</span>
+                        <span className="font-mono text-xs text-muted-foreground">{player.rating.toLocaleString()} <span className="text-[10px]">ELO</span></span>
+                      </Link>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyPanel>No players have chosen to show their rating publicly.</EmptyPanel>
+                )}
+                <Link href="/leaderboard" className="flex items-center justify-between border-t border-border px-4 py-3 text-xs font-medium text-primary transition-colors hover:bg-muted/40">
+                  View leaderboard <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </section>
+
+              <section className="overflow-hidden rounded-lg border border-border bg-card" aria-labelledby="scheduled-contests-heading">
+                <div className="flex items-center justify-between border-b border-border px-4 py-3">
+                  <h3 id="scheduled-contests-heading" className="flex items-center gap-2 text-sm font-semibold"><CalendarDays className="h-4 w-4 text-primary" /> Scheduled contests</h3>
+                  <Link href="/contests" className="text-xs text-muted-foreground transition-colors hover:text-foreground">All contests</Link>
+                </div>
+                {loading ? <PanelSkeleton rows={2} /> : overview?.contests.length ? (
+                  <div className="divide-y divide-border">
+                    {overview.contests.map((contest) => (
+                      <div key={contest.id} className="px-4 py-3">
+                        <p className="truncate text-sm font-medium">{contest.title}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {new Date(contest.date).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyPanel>No upcoming contests are scheduled.</EmptyPanel>
+                )}
+                <Link href="/contests" className="flex items-center justify-between border-t border-border px-4 py-3 text-xs font-medium text-primary transition-colors hover:bg-muted/40">
+                  Explore contests <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </section>
+            </div>
+
+            <div className="mt-4 flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-3 text-xs text-muted-foreground">
+              <Users className="h-4 w-4 shrink-0 text-primary" />
+              Community and rating details appear only when their owners have made them public.
+            </div>
+          </>
+        )}
       </div>
     </section>
   );

@@ -1,32 +1,50 @@
 'use client';
-import React from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Shell } from '@/components/layout/Shell';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Trophy, Loader2, Medal, Crown, Star } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/premium/EmptyState';
 import { cn, getTier, getTierColor } from '@/lib/utils';
-import { useCollection } from '@/firebase/firestore/use-collection';
 import { useUser } from '@/firebase/auth/use-user';
-import { useFirestore } from '@/firebase/provider';
-import { collection, query, orderBy, limit } from 'firebase/firestore';
 
 const MEDAL_ICONS = [Crown, Medal, Star];
 const MEDAL_COLORS = ['text-yellow-400', 'text-gray-300', 'text-orange-400'];
 
 export default function LeaderboardPage() {
-  const db = useFirestore();
   const { user } = useUser();
   const router = useRouter();
+  const [leaders, setLeaders] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const loadLeaders = useCallback(async () => {
+    setLoading(true);
+    setError(false);
+    try {
+      const response = await fetch('/api/public/leaderboard', { cache: 'no-store' });
+      if (!response.ok) throw new Error('Unable to load leaderboard.');
+      const data = await response.json();
+      setLeaders(Array.isArray(data.leaders) ? data.leaders : []);
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => { void loadLeaders(); }, [loadLeaders]);
 
-  const leadersQuery = React.useMemo(() => {
-    if (!db) return null;
-    return query(collection(db, 'users'), orderBy('rating', 'desc'), limit(50));
-  }, [db]);
-
-  const { data: leaders, loading } = useCollection(leadersQuery);
+  const rankedLeaders = React.useMemo(
+    () => (leaders || []).filter((player: any) =>
+      typeof player.username === 'string'
+      && typeof player.rating === 'number'
+      && typeof player.wins === 'number'
+      && player.wins > 0,
+    ),
+    [leaders],
+  );
 
   return (
     <Shell>
@@ -46,7 +64,13 @@ export default function LeaderboardPage() {
           <div className="flex items-center justify-center py-20">
             <Loader2 className="w-12 h-12 text-primary animate-spin" />
           </div>
-        ) : !leaders || leaders.length === 0 ? (
+        ) : error ? (
+          <div className="mx-auto max-w-lg rounded-lg border border-destructive/30 bg-destructive/5 p-6 text-center">
+            <p className="font-semibold">Rankings couldn&apos;t be loaded</p>
+            <p className="mt-2 text-sm text-muted-foreground">The public leaderboard is temporarily unavailable.</p>
+            <Button className="mt-4" variant="outline" onClick={() => void loadLeaders()}>Retry</Button>
+          </div>
+        ) : rankedLeaders.length === 0 ? (
           <EmptyState
             icon={Trophy}
             title="No Rankings Available"
@@ -56,9 +80,9 @@ export default function LeaderboardPage() {
         ) : (
           <>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
-              {leaders.length > 1 && <TopPlayerCard rank={2} name={leaders[1].username} rating={leaders[1].rating} userId={leaders[1].id} />}
-              {leaders.length > 0 && <TopPlayerCard rank={1} name={leaders[0].username} rating={leaders[0].rating} userId={leaders[0].id} />}
-              {leaders.length > 2 && <TopPlayerCard rank={3} name={leaders[2].username} rating={leaders[2].rating} userId={leaders[2].id} />}
+              {rankedLeaders.length > 1 && <TopPlayerCard rank={2} name={rankedLeaders[1].username} rating={rankedLeaders[1].rating} userId={rankedLeaders[1].id} />}
+              {rankedLeaders.length > 0 && <TopPlayerCard rank={1} name={rankedLeaders[0].username} rating={rankedLeaders[0].rating} userId={rankedLeaders[0].id} />}
+              {rankedLeaders.length > 2 && <TopPlayerCard rank={3} name={rankedLeaders[2].username} rating={rankedLeaders[2].rating} userId={rankedLeaders[2].id} />}
             </div>
 
             <Card className="bg-card/50 border-border overflow-hidden">
@@ -69,9 +93,11 @@ export default function LeaderboardPage() {
                 <div className="col-span-3 text-right px-4">Wins</div>
               </div>
               <div className="divide-y divide-border">
-                {leaders.map((player: any, index: number) => {
+                {rankedLeaders.map((player: any, index: number) => {
                   const isCurrentUser = user?.uid === player.id;
                   const isTop3 = index < 3;
+                  const wins = Number(player.wins) || 0;
+                  const losses = Number(player.losses) || 0;
                   return (
                     <LeaderRow
                       key={player.id}
@@ -79,8 +105,8 @@ export default function LeaderboardPage() {
                       userId={player.id}
                       name={player.username}
                       rating={player.rating}
-                      wins={player.wins}
-                      games={player.wins + player.losses}
+                      wins={wins}
+                      games={wins + losses}
                       isCurrentUser={isCurrentUser}
                       isTop3={isTop3}
                       onViewProfile={() => router.push(`/profile/${player.id}`)}

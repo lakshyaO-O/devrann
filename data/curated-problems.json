@@ -1,0 +1,182 @@
+[
+  {
+    "id": "distinct-values",
+    "title": "Count Distinct Values",
+    "difficulty": "Easy",
+    "category": "Arrays",
+    "points": 50,
+    "estimatedTime": 10,
+    "topics": ["Arrays", "Hashing"],
+    "description": "Given a list of integers, return how many different values appear in it. The list may be empty, and values may repeat any number of times.",
+    "constraints": ["0 <= numbers.length <= 100000", "-1000000000 <= numbers[i] <= 1000000000"],
+    "examples": [
+      { "input": "numbers = [4, 1, 4, 2, 1]", "output": "3", "explanation": "The distinct values are 1, 2, and 4." },
+      { "input": "numbers = []", "output": "0", "explanation": "An empty list contains no distinct values." }
+    ],
+    "hints": [
+      "Keep track of values you have already encountered.",
+      "A set stores each value at most once.",
+      "Return the size of the set after processing the list."
+    ],
+    "editorial": "Insert every number into a set, then return the set size. Set insertion and lookup are O(1) on average, so the total time is O(n) and the extra space is O(n).",
+    "testCases": [
+      { "input": "numbers = [4, 1, 4, 2, 1]", "expected": "3" },
+      { "input": "numbers = []", "expected": "0" },
+      { "input": "numbers = [7, 7, 7, 7]", "expected": "1" },
+      { "input": "numbers = [-3, 0, 3, 0, -3, 8]", "expected": "4", "isHidden": true },
+      { "input": "numbers = [1, 2, 3, 4, 5]", "expected": "5", "isHidden": true },
+      { "input": "numbers = [0, -1, 0, -1, 2]", "expected": "3", "isHidden": true }
+    ],
+    "starterCode": {
+      "javascript": "function countDistinct(numbers) {\n  // Return the number of different values.\n}",
+      "typescript": "function countDistinct(numbers: number[]): number {\n  // Return the number of different values.\n  return 0;\n}",
+      "python": "def count_distinct(numbers):\n    # Return the number of different values.\n    pass",
+      "java": "class Solution {\n    public int countDistinct(int[] numbers) {\n        // Return the number of different values.\n        return 0;\n    }\n}",
+      "cpp": "int countDistinct(vector<int>& numbers) {\n    // Return the number of different values.\n    return 0;\n}"
+    }
+  },
+  {
+    "id": "best-fixed-window",
+    "title": "Best Fixed-Window Total",
+    "difficulty": "Medium",
+    "category": "Arrays",
+    "points": 75,
+    "estimatedTime": 20,
+    "topics": ["Arrays", "Sliding Window"],
+    "description": "Given an integer list and a window size k, return the largest sum among all contiguous windows of exactly k elements. The input guarantees 1 <= k <= numbers.length.",
+    "constraints": ["1 <= k <= numbers.length <= 200000", "-10000 <= numbers[i] <= 10000"],
+    "examples": [
+      { "input": "numbers = [2, -1, 4, 3, -2], k = 2", "output": "7", "explanation": "The window [4, 3] has the largest sum, 7." },
+      { "input": "numbers = [-5, -2, -7], k = 1", "output": "-2", "explanation": "The best one-element window is [-2]." }
+    ],
+    "hints": [
+      "Compute the sum of the first window.",
+      "When the window moves one position, one value leaves and one value enters.",
+      "Track the maximum as you slide; do not reset it to zero because sums can be negative."
+    ],
+    "editorial": "Sum the first k values, then slide the window by subtracting the outgoing value and adding the incoming value. Update the best sum at each step. This takes O(n) time and O(1) extra space.",
+    "testCases": [
+      { "input": "numbers = [2, -1, 4, 3, -2], k = 2", "expected": "7" },
+      { "input": "numbers = [-5, -2, -7], k = 1", "expected": "-2" },
+      { "input": "numbers = [1, 2, 3, 4], k = 4", "expected": "10" },
+      { "input": "numbers = [8, -9, 6, 7, -1, 5], k = 3", "expected": "12", "isHidden": true },
+      { "input": "numbers = [-4, -1, -8, -2], k = 2", "expected": "-5", "isHidden": true },
+      { "input": "numbers = [3, 3, 3, 3, 3], k = 4", "expected": "12", "isHidden": true }
+    ],
+    "starterCode": {
+      "javascript": "function bestWindowTotal(numbers, k) {\n  // Return the largest sum of any contiguous k values.\n}",
+      "typescript": "function bestWindowTotal(numbers: number[], k: number): number {\n  // Return the largest sum of any contiguous k values.\n  return 0;\n}",
+      "python": "def best_window_total(numbers, k):\n    # Return the largest sum of any contiguous k values.\n    pass",
+      "java": "class Solution {\n    public int bestWindowTotal(int[] numbers, int k) {\n        // Return the largest sum of any contiguous k values.\n        return 0;\n    }\n}",
+      "cpp": "int bestWindowTotal(vector<int>& numbers, int k) {\n    // Return the largest sum of any contiguous k values.\n    return 0;\n}"
+    }
+  },
+  {
+    "id": "first-unique-position",
+    "title": "First Unique Position",
+    "difficulty": "Easy",
+    "category": "Strings",
+    "points": 50,
+    "estimatedTime": 15,
+    "topics": ["Strings", "Hashing"],
+    "description": "Given a string containing lowercase English letters, return the index of its first character that occurs exactly once. Return -1 if every character repeats or the string is empty. Indices start at zero.",
+    "constraints": ["0 <= text.length <= 200000", "text contains only lowercase English letters"],
+    "examples": [
+      { "input": "text = \"swiss\"", "output": "1", "explanation": "The character 'w' is the first character that appears once." },
+      { "input": "text = \"aabb\"", "output": "-1", "explanation": "Every character appears more than once." }
+    ],
+    "hints": [
+      "A first pass can count how often each character occurs.",
+      "In a second pass, scan from left to right.",
+      "Return the first index whose character count is one."
+    ],
+    "editorial": "Count each letter in a first pass, then scan the string again and return the first index with frequency one. Since the alphabet is fixed, the frequency table has constant size; time is O(n), space is O(1).",
+    "testCases": [
+      { "input": "text = \"swiss\"", "expected": "1" },
+      { "input": "text = \"aabb\"", "expected": "-1" },
+      { "input": "text = \"z\"", "expected": "0" },
+      { "input": "text = \"qwerty\"", "expected": "0", "isHidden": true },
+      { "input": "text = \"levelheaded\"", "expected": "2", "isHidden": true },
+      { "input": "text = \"abcabcde\"", "expected": "6", "isHidden": true }
+    ],
+    "starterCode": {
+      "javascript": "function firstUniquePosition(text) {\n  // Return the first unique character's index, or -1.\n}",
+      "typescript": "function firstUniquePosition(text: string): number {\n  // Return the first unique character's index, or -1.\n  return -1;\n}",
+      "python": "def first_unique_position(text):\n    # Return the first unique character's index, or -1.\n    pass",
+      "java": "class Solution {\n    public int firstUniquePosition(String text) {\n        // Return the first unique character's index, or -1.\n        return -1;\n    }\n}",
+      "cpp": "int firstUniquePosition(string text) {\n    // Return the first unique character's index, or -1.\n    return -1;\n}"
+    }
+  },
+  {
+    "id": "shortest-threshold-window",
+    "title": "Shortest Threshold Window",
+    "difficulty": "Hard",
+    "category": "Arrays",
+    "points": 100,
+    "estimatedTime": 30,
+    "topics": ["Arrays", "Sliding Window"],
+    "description": "You are given a list of positive integers and a positive target. Return the length of the shortest contiguous subarray whose sum is at least target. Return 0 if no such subarray exists.",
+    "constraints": ["1 <= numbers.length <= 200000", "1 <= numbers[i] <= 10000", "1 <= target <= 2000000000"],
+    "examples": [
+      { "input": "numbers = [2, 3, 1, 2, 4, 3], target = 7", "output": "2", "explanation": "The window [4, 3] reaches the target with length 2." },
+      { "input": "numbers = [1, 1, 1], target = 5", "output": "0", "explanation": "No contiguous window reaches 5." }
+    ],
+    "hints": [
+      "Because every value is positive, extending a window can only increase its sum.",
+      "Move a right pointer to grow the sum, then move the left pointer while the sum still reaches the target.",
+      "Record the shortest valid window before shrinking it."
+    ],
+    "editorial": "Maintain a sliding window sum. Expand the right edge until the sum reaches target, then repeatedly remove the leftmost value while the window remains valid, updating the minimum length each time. Positivity makes shrinking safe. Time is O(n), space is O(1).",
+    "testCases": [
+      { "input": "numbers = [2, 3, 1, 2, 4, 3], target = 7", "expected": "2" },
+      { "input": "numbers = [1, 1, 1], target = 5", "expected": "0" },
+      { "input": "numbers = [5], target = 5", "expected": "1" },
+      { "input": "numbers = [1, 2, 3, 4, 5], target = 11", "expected": "3", "isHidden": true },
+      { "input": "numbers = [7, 2, 1, 1, 1], target = 7", "expected": "1", "isHidden": true },
+      { "input": "numbers = [2, 2, 2, 2], target = 9", "expected": "0", "isHidden": true }
+    ],
+    "starterCode": {
+      "javascript": "function shortestThresholdWindow(numbers, target) {\n  // Return the minimum valid window length, or 0.\n}",
+      "typescript": "function shortestThresholdWindow(numbers: number[], target: number): number {\n  // Return the minimum valid window length, or 0.\n  return 0;\n}",
+      "python": "def shortest_threshold_window(numbers, target):\n    # Return the minimum valid window length, or 0.\n    pass",
+      "java": "class Solution {\n    public int shortestThresholdWindow(int[] numbers, int target) {\n        // Return the minimum valid window length, or 0.\n        return 0;\n    }\n}",
+      "cpp": "int shortestThresholdWindow(vector<int>& numbers, int target) {\n    // Return the minimum valid window length, or 0.\n    return 0;\n}"
+    }
+  },
+  {
+    "id": "can-reach-finish",
+    "title": "Can You Reach the Finish?",
+    "difficulty": "Medium",
+    "category": "Greedy",
+    "points": 75,
+    "estimatedTime": 20,
+    "topics": ["Arrays", "Greedy"],
+    "description": "A non-empty list describes a path. At position i, numbers[i] is the maximum number of steps you may move forward. Return true if you can reach or pass the final position from index 0. Return false otherwise.",
+    "constraints": ["1 <= numbers.length <= 100000", "0 <= numbers[i] <= 100000"],
+    "examples": [
+      { "input": "numbers = [2, 3, 1, 1, 4]", "output": "true", "explanation": "Move from index 0 to index 1, then reach the final index." },
+      { "input": "numbers = [3, 2, 0, 0, 1]", "output": "false", "explanation": "The reachable positions stop before the final index." }
+    ],
+    "hints": [
+      "You do not need to store every path.",
+      "Track the furthest index reachable so far.",
+      "If you reach an index beyond that boundary, the finish is unreachable."
+    ],
+    "editorial": "Scan from left to right while maintaining the furthest reachable index. If the current index exceeds it, return false. Otherwise extend the boundary with i + numbers[i]. Reaching the final index returns true. Time is O(n), space is O(1).",
+    "testCases": [
+      { "input": "numbers = [2, 3, 1, 1, 4]", "expected": "true" },
+      { "input": "numbers = [3, 2, 0, 0, 1]", "expected": "false" },
+      { "input": "numbers = [0]", "expected": "true" },
+      { "input": "numbers = [1, 0, 1]", "expected": "false", "isHidden": true },
+      { "input": "numbers = [4, 0, 0, 0, 0]", "expected": "true", "isHidden": true },
+      { "input": "numbers = [2, 0, 2, 0, 1]", "expected": "true", "isHidden": true }
+    ],
+    "starterCode": {
+      "javascript": "function canReachFinish(numbers) {\n  // Return whether the final index is reachable.\n}",
+      "typescript": "function canReachFinish(numbers: number[]): boolean {\n  // Return whether the final index is reachable.\n  return false;\n}",
+      "python": "def can_reach_finish(numbers):\n    # Return whether the final index is reachable.\n    pass",
+      "java": "class Solution {\n    public boolean canReachFinish(int[] numbers) {\n        // Return whether the final index is reachable.\n        return false;\n    }\n}",
+      "cpp": "bool canReachFinish(vector<int>& numbers) {\n    // Return whether the final index is reachable.\n    return false;\n}"
+    }
+  }
+]

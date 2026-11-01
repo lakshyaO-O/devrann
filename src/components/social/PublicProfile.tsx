@@ -7,8 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
 import { initializeFirebase } from '@/firebase';
-import { doc, getDoc, collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
-import type { QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 import { UserProfile, FriendDoc, ActivityEvent, MatchRecord, PrivacySettings } from '@/app/lib/types';
 import { useUser } from '@/firebase/auth/use-user';
 import { useSendFriendRequest } from '@/hooks/use-friends';
@@ -48,28 +47,31 @@ export function PublicProfile({ profileId }: PublicProfileProps) {
 
   const loadProfile = useCallback(async () => {
     try {
-      const { firestore: db } = initializeFirebase();
-      if (!db) { setLoading(false); return; }
-      const userDoc = await getDoc(doc(db, 'users', profileId));
-      if (userDoc.exists()) {
-        const data = userDoc.data() as UserProfile;
-        setProfile(data);
+      const token = user ? await user.getIdToken() : null;
+      const response = await fetch(`/api/public/profiles?uid=${encodeURIComponent(profileId)}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        cache: 'no-store',
+      });
+      if (!response.ok) {
+        if (response.status === 404) {
+          setProfile(null);
+          setLoading(false);
+          return;
+        }
+        throw new Error('Unable to load public profile.');
       }
-
-      const [friendsSnap, activitySnap, matchSnap] = await Promise.all([
-        getDocs(query(collection(db, 'users', profileId, 'friends'), limit(9))),
-        getDocs(query(collection(db, 'users', profileId, 'activity'), orderBy('timestamp', 'desc'), limit(10))),
-        getDocs(query(collection(db, 'users', profileId, 'matchHistory'), orderBy('timestamp', 'desc'), limit(10))),
-      ]);
-
-      setFriends(friendsSnap.docs.map((d: QueryDocumentSnapshot<DocumentData>) => ({ id: d.id, ...d.data() } as unknown as FriendDoc)));
-      setActivities(activitySnap.docs.map((d: QueryDocumentSnapshot<DocumentData>) => ({ id: d.id, ...d.data() } as unknown as ActivityEvent)));
-      setMatchHistory(matchSnap.docs.map((d: QueryDocumentSnapshot<DocumentData>) => ({ id: d.id, ...d.data() } as unknown as MatchRecord)));
+      const result = await response.json();
+      setProfile(result.profile as UserProfile);
+      setFriends(Array.isArray(result.friends) ? result.friends as FriendDoc[] : []);
+      setActivities(Array.isArray(result.activity) ? result.activity as ActivityEvent[] : []);
+      setMatchHistory(Array.isArray(result.matchHistory) ? result.matchHistory as MatchRecord[] : []);
 
       if (user && user.uid !== profileId) {
-        const myFriendsSnap = await getDocs(collection(db, 'users', user.uid, 'friends'));
-        const isFriend = myFriendsSnap.docs.some((d: QueryDocumentSnapshot<DocumentData>) => d.id === profileId);
-        if (isFriend) setFriendStatus('friends');
+        const { firestore: db } = initializeFirebase();
+        if (db) {
+          const friend = await getDoc(doc(db, 'users', user.uid, 'friends', profileId));
+          if (friend.exists()) setFriendStatus('friends');
+        }
       }
 
       setLoading(false);
@@ -133,23 +135,16 @@ export function PublicProfile({ profileId }: PublicProfileProps) {
     );
   }
 
-  const tier = getTier(profile.rating);
-  const tierColor = getTierColor(tier);
+  const showRating = privacy.showRating === true;
+  const tier = showRating ? getTier(profile.rating || 0) : '';
+  const tierColor = tier ? getTierColor(tier) : '';
   const totalGames = profile.wins + profile.losses + profile.draws;
   const winRate = totalGames > 0 ? Math.round((profile.wins / totalGames) * 100) : 0;
   const initials = (profile.username || '?')[0]?.toUpperCase() || '?';
   const level = profile.level || Math.floor((profile.xp || 0) / 500) + 1;
 
-  const allBadges = profile.badges || [
-    ...(profile.wins >= 1 ? ['First Blood'] : []),
-    ...(profile.wins >= 10 ? ['10 Wins'] : []),
-    ...((profile.xp || 0) >= 100 ? ['100 XP'] : []),
-    ...((profile.xp || 0) >= 500 ? ['500 XP'] : []),
-    ...((profile.xp || 0) >= 1000 ? ['1000 XP'] : []),
-    ...(profile.rating >= 1500 ? ['Elite'] : []),
-  ];
-
-  const allAchievements = profile.achievements || allBadges.map((_, i) => `Achievement ${i + 1}`);
+  const allBadges = profile.badges || [];
+  const allAchievements = profile.achievements || [];
 
   const socialLinks: { label: string; url?: string; icon: React.ReactNode }[] = [
     ...(profile.githubUrl ? [{ label: 'GitHub', url: profile.githubUrl, icon: <Github className="w-4 h-4" /> }] : []),
@@ -171,13 +166,13 @@ export function PublicProfile({ profileId }: PublicProfileProps) {
             <div className="flex-1 pt-14 sm:pt-0 min-w-0">
               <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-2xl font-headline font-bold truncate">{profile.username}</h1>
-                <Badge className={cn(
+                {showRating && <Badge className={cn(
                   'text-xs uppercase tracking-widest',
                   tierColor === 'text-red-500 font-bold' ? 'bg-red-500/10 text-red-400' :
                   tierColor.replace('text-', 'bg-').replace(/\s+\w+-\w+$/, '/10')
                 )}>
                   {tier}
-                </Badge>
+                </Badge>}
                 {profile.title && (
                   <Badge variant="outline" className="text-[11px] uppercase tracking-wider">{profile.title}</Badge>
                 )}
@@ -256,14 +251,16 @@ export function PublicProfile({ profileId }: PublicProfileProps) {
                     <Medal className="w-4 h-4 text-primary" /> Detailed Stats
                   </h3>
                   <div className="space-y-3">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Rating</span>
-                      <span className="font-bold">{profile.rating}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Highest Rating</span>
-                      <span className="font-bold">{profile.highestRating || profile.rating}</span>
-                    </div>
+                    {showRating && <>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Rating</span>
+                        <span className="font-bold">{profile.rating}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Highest Rating</span>
+                        <span className="font-bold">{profile.highestRating || profile.rating}</span>
+                      </div>
+                    </>}
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">XP</span>
                       <span className="font-bold">{(profile.xp || 0).toLocaleString()}</span>
@@ -271,10 +268,6 @@ export function PublicProfile({ profileId }: PublicProfileProps) {
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Level</span>
                       <span className="font-bold">{level}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Coins</span>
-                      <span className="font-bold">{(profile.coins || 0).toLocaleString()}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Draws</span>
@@ -353,6 +346,7 @@ export function PublicProfile({ profileId }: PublicProfileProps) {
         <TabsContent value="achievements">
           <PrivacyGate section="showAchievements" privacySettings={privacy}>
             <div className="space-y-6">
+              <PrivacyGate section="showBadges" privacySettings={privacy}>
               <Card className="bg-card/50 border-border">
                 <CardContent className="p-5">
                   <h3 className="text-sm font-headline font-bold uppercase tracking-wider mb-4 flex items-center gap-2">
@@ -371,6 +365,7 @@ export function PublicProfile({ profileId }: PublicProfileProps) {
                   )}
                 </CardContent>
               </Card>
+              </PrivacyGate>
 
               <Card className="bg-card/50 border-border">
                 <CardContent className="p-5">

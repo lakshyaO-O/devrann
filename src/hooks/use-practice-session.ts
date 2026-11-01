@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type { CodingLanguage, PracticeProblemDocument, TestCaseResult, Verdict, SubmissionStatus, ExecutionPhase } from '@/types';
-import { submitSolution } from '@/services/practice';
+import { runPublicTests, submitSolution } from '@/services/practice';
 import type { JudgeProgress } from '@/features/practice/services/judge';
 
 interface SessionState {
@@ -23,6 +23,7 @@ interface SessionState {
   currentTest: number;
   totalTests: number;
   phaseMessage: string;
+  error: string | null;
 }
 
 export function usePracticeSession(
@@ -48,6 +49,7 @@ export function usePracticeSession(
     currentTest: 0,
     totalTests: 0,
     phaseMessage: '',
+    error: null,
   });
 
   const prevProblemRef = useRef<string | null>(null);
@@ -55,20 +57,21 @@ export function usePracticeSession(
   const codeRef = useRef<string>(state.code);
 
   useEffect(() => {
-    if (!problem) return;
-    if (prevProblemRef.current !== problem.id) {
-      prevProblemRef.current = problem.id;
-      const starter = problem.starterCode[state.language] || problem.starterCode.javascript || '';
-      setState(s => ({ ...s, code: starter, testResults: [], verdict: null, phase: 'idle' }));
-    }
+    if (!problem || prevProblemRef.current === problem.id) return;
+    prevProblemRef.current = problem.id;
+    const starter = problem.starterCode[state.language] || problem.starterCode.javascript || '';
+    setState(s => ({
+      ...s,
+      code: starter,
+      testResults: [],
+      verdict: null,
+      phase: 'idle',
+      error: null,
+    }));
   }, [problem, state.language]);
 
-  useEffect(() => {
-    languageRef.current = state.language;
-  }, [state.language]);
-  useEffect(() => {
-    codeRef.current = state.code;
-  }, [state.code]);
+  useEffect(() => { languageRef.current = state.language; }, [state.language]);
+  useEffect(() => { codeRef.current = state.code; }, [state.code]);
 
   const setCode = useCallback((code: string) => {
     codeRef.current = code;
@@ -76,10 +79,11 @@ export function usePracticeSession(
   }, []);
 
   const setLanguage = useCallback((language: CodingLanguage) => {
-    setState(s => {
-      const starter = problem?.starterCode[language] || s.code;
-      return { ...s, language, code: starter };
-    });
+    setState(s => ({
+      ...s,
+      language,
+      code: problem?.starterCode[language] || s.code,
+    }));
   }, [problem]);
 
   const handleProgress = useCallback((progress: JudgeProgress) => {
@@ -95,56 +99,103 @@ export function usePracticeSession(
   const runTests = useCallback(async () => {
     if (!problem || !userId) return;
     setState(s => ({
-      ...s, isRunning: true, testResults: [], verdict: null,
-      phase: 'compiling', currentTest: 0, totalTests: 0, phaseMessage: 'Compiling...',
+      ...s,
+      isRunning: true,
+      testResults: [],
+      verdict: null,
+      phase: 'compiling',
+      currentTest: 0,
+      totalTests: 0,
+      phaseMessage: 'Running sample tests...',
+      error: null,
     }));
 
-    const visibleTestCases = problem.testCases.filter(tc => !tc.isHidden).slice(0, 3);
-    const { results, compileTimeMs, codeSize } = await submitSolution(
-      userId, username, problem.id, languageRef.current, codeRef.current,
-      visibleTestCases.map(tc => ({ input: tc.input, expected: tc.expected })),
-      handleProgress,
-    );
-
-    setState(s => ({
-      ...s, isRunning: false, testResults: results,
-      passedTestCases: results.filter(r => r.passed).length,
-      totalTestCases: results.length,
-      compileTimeMs: compileTimeMs ?? 0,
-      codeSize: codeSize ?? 0,
-      phase: 'finished',
-      phaseMessage: 'Run complete',
-    }));
-  }, [problem, userId, username, handleProgress]);
+    try {
+      const result = await runPublicTests(
+        problem.id,
+        languageRef.current,
+        codeRef.current,
+        problem.testCases,
+        problem.timeLimitMs,
+        problem.memoryLimitKb,
+      );
+      setState(s => ({
+        ...s,
+        isRunning: false,
+        testResults: result.testCaseResults,
+        passedTestCases: result.testCaseResults.filter(r => r.passed).length,
+        totalTestCases: result.testCaseResults.length,
+        executionTimeMs: result.executionTimeMs,
+        memoryUsedKb: result.memoryUsedKb,
+        compileTimeMs: result.compileTimeMs,
+        codeSize: result.codeSize,
+        phase: 'finished',
+        phaseMessage: 'Sample run complete',
+      }));
+    } catch (cause) {
+      setState(s => ({
+        ...s,
+        isRunning: false,
+        phase: 'error',
+        phaseMessage: 'Sample run failed',
+        error: cause instanceof Error ? cause.message : 'Sample test execution failed.',
+      }));
+    }
+  }, [problem, userId]);
 
   const submit = useCallback(async () => {
     if (!problem || !userId) return;
     setState(s => ({
-      ...s, isSubmitting: true, submissionStatus: 'running', testResults: [],
-      phase: 'compiling', currentTest: 0, totalTests: 0, phaseMessage: 'Compiling...',
+      ...s,
+      isSubmitting: true,
+      submissionStatus: 'running',
+      testResults: [],
+      verdict: null,
+      phase: 'compiling',
+      currentTest: 0,
+      totalTests: 0,
+      phaseMessage: 'Submitting for full evaluation...',
+      error: null,
     }));
 
-    const { submission, results, compileTimeMs, codeSize } = await submitSolution(
-      userId, username, problem.id, languageRef.current, codeRef.current,
-      problem.testCases.map(tc => ({ input: tc.input, expected: tc.expected, isHidden: tc.isHidden })),
-      handleProgress,
-    );
-
-    setState(s => ({
-      ...s, isSubmitting: false, submissionStatus: 'completed',
-      testResults: results, verdict: submission.verdict,
-      passedTestCases: submission.passedTestCases,
-      totalTestCases: submission.totalTestCases,
-      executionTimeMs: submission.executionTimeMs,
-      memoryUsedKb: submission.memoryUsedKb,
-      compileTimeMs: compileTimeMs ?? 0,
-      codeSize: codeSize ?? 0,
-      phase: 'finished',
-      currentTest: results.length,
-      phaseMessage: submission.verdict === 'Accepted' ? 'Accepted' : 'Failed',
-    }));
-
-    return submission;
+    try {
+      const { submission, results, compileTimeMs, codeSize } = await submitSolution(
+        userId,
+        username,
+        problem.id,
+        languageRef.current,
+        codeRef.current,
+        undefined,
+        handleProgress,
+      );
+      setState(s => ({
+        ...s,
+        isSubmitting: false,
+        submissionStatus: 'completed',
+        testResults: results,
+        verdict: submission.verdict,
+        passedTestCases: submission.passedTestCases,
+        totalTestCases: submission.totalTestCases,
+        executionTimeMs: submission.executionTimeMs,
+        memoryUsedKb: submission.memoryUsedKb,
+        compileTimeMs: compileTimeMs ?? 0,
+        codeSize: codeSize ?? 0,
+        phase: 'finished',
+        currentTest: results.length,
+        phaseMessage: submission.verdict === 'Accepted' ? 'Accepted' : 'Failed',
+      }));
+      return submission;
+    } catch (cause) {
+      setState(s => ({
+        ...s,
+        isSubmitting: false,
+        submissionStatus: 'pending',
+        phase: 'error',
+        phaseMessage: 'Submission failed',
+        error: cause instanceof Error ? cause.message : 'Code submission failed.',
+      }));
+      return undefined;
+    }
   }, [problem, userId, username, handleProgress]);
 
   const resetCode = useCallback(() => {
@@ -158,6 +209,7 @@ export function usePracticeSession(
       currentTest: 0,
       totalTests: 0,
       phaseMessage: '',
+      error: null,
     }));
   }, [problem]);
 

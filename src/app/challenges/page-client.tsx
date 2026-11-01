@@ -1,168 +1,194 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
+import Link from 'next/link';
 import { Shell } from '@/components/layout/Shell';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Target, Flame, Timer, Trophy, ChevronRight, Lock, CheckCircle2, Loader2 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Target, Flame, Timer, Loader2, AlertCircle, ChevronRight } from 'lucide-react';
+import { collection, documentId, query, where } from 'firebase/firestore';
 import { useCollection } from '@/firebase/firestore/use-collection';
-import { useUser } from '@/firebase/auth/use-user';
 import { useFirestore } from '@/firebase/provider';
-import { collection, query, orderBy, limit, where } from 'firebase/firestore';
+import { usePracticeProblems } from '@/hooks/use-practice-problems';
 import { EmptyState } from '@/components/premium/EmptyState';
+
+interface DailyChallengeConfig {
+  date: string;
+  problemId: string;
+}
+
+interface WeeklyChallengeConfig {
+  week: string;
+  problemIds: string[];
+}
+
+function getIsoWeekKey(date = new Date()): string {
+  const utcDate = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  utcDate.setUTCDate(utcDate.getUTCDate() + 4 - (utcDate.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(utcDate.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((utcDate.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return `${utcDate.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
 
 export default function ChallengesPage() {
   const db = useFirestore();
-  const { user } = useUser();
-
-  const challengesQuery = React.useMemo(() => {
+  const challengeQuery = useMemo(() => {
     if (!db) return null;
-    return query(collection(db, 'challenges'), orderBy('createdAt', 'desc'), limit(20));
+    return query(
+      collection(db, 'challenges'),
+      where(documentId(), 'in', ['daily', 'weekly']),
+    );
   }, [db]);
+  const {
+    data: challengeDocs, loading: challengesLoading, error: challengesError, retry: retryChallenges,
+  } = useCollection(challengeQuery);
+  const {
+    problems, loading: problemsLoading, error: problemsError, retry: retryProblems,
+  } = usePracticeProblems();
 
-  const { data: challenges, loading } = useCollection(challengesQuery);
+  const dailyDoc = challengeDocs?.find((item) => item.id === 'daily');
+  const weeklyDoc = challengeDocs?.find((item) => item.id === 'weekly');
+  const today = new Date().toISOString().slice(0, 10);
+  const daily = (Array.isArray(dailyDoc?.challenges) ? dailyDoc.challenges : [])
+    .find((item: DailyChallengeConfig) => item.date === today) as DailyChallengeConfig | undefined;
+  const weekly = weeklyDoc?.week === getIsoWeekKey()
+    && Array.isArray(weeklyDoc.problemIds)
+    ? weeklyDoc as WeeklyChallengeConfig
+    : null;
+  const problemById = useMemo(
+    () => new Map(problems.map((problem) => [problem.id, problem])),
+    [problems],
+  );
 
-  const userChallengesQuery = React.useMemo(() => {
-    if (!db || !user) return null;
-    return query(collection(db, 'users', user.uid, 'challengeProgress'), limit(50));
-  }, [db, user]);
-
-  const { data: userProgress } = useCollection(userChallengesQuery);
-
-  const progressMap = new Map();
-  (userProgress || []).forEach((p: any) => {
-    progressMap.set(p.challengeId, p);
-  });
-
-  if (loading) {
+  if (challengesLoading || problemsLoading) {
     return (
       <Shell>
-        <div className="flex items-center justify-center h-[50vh]">
-          <Loader2 className="w-12 h-12 text-primary animate-spin" />
+        <div className="flex h-[50vh] items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
       </Shell>
     );
   }
 
+  if (challengesError || problemsError) {
+    return (
+      <Shell>
+        <div className="mx-auto max-w-xl rounded-lg border border-destructive/30 bg-destructive/5 p-6 text-center">
+          <AlertCircle className="mx-auto mb-3 h-6 w-6 text-destructive" />
+          <h1 className="font-semibold">Challenges couldn&apos;t be loaded</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            The challenge schedule or published problem list is temporarily unavailable.
+          </p>
+          <Button
+            className="mt-4"
+            variant="outline"
+            onClick={() => {
+              if (challengesError) retryChallenges();
+              if (problemsError) retryProblems();
+            }}
+          >
+            Retry
+          </Button>
+        </div>
+      </Shell>
+    );
+  }
+
+  const hasActiveChallenges = Boolean(daily || (weekly && weekly.problemIds.length > 0));
+
   return (
     <Shell>
       <div className="space-y-8">
         <div className="space-y-2">
-          <h1 className="text-4xl font-headline font-bold text-foreground">
-            Challenges
-          </h1>
-          <p className="text-muted-foreground">Complete challenges to earn bonus XP and climb the leaderboard.</p>
+          <h1 className="text-4xl font-headline font-bold text-foreground">Challenges</h1>
+          <p className="text-muted-foreground">Current challenges configured by the platform.</p>
         </div>
 
-        {!challenges || challenges.length === 0 ? (
+        {!hasActiveChallenges ? (
           <EmptyState
             icon={Target}
-            title="No Challenges Available"
-            description="Check back later for daily and weekly challenges."
+            title="No Active Challenges"
+            description="There are no daily or weekly challenges scheduled right now."
           />
         ) : (
-          <>
-            {challenges.filter((c: any) => c.type === 'daily').length > 0 && (
-              <Card className="border-primary/20 bg-primary/[0.03]">
-                <CardContent className="p-8">
-                  <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-3">
-                        <Flame className="w-6 h-6 text-orange-400" />
-                        <Badge className="bg-orange-500/20 text-orange-400 border-orange-500/30 text-[11px] uppercase tracking-wider">
-                          Daily Challenge
-                        </Badge>
-                      </div>
-                      <h2 className="text-2xl font-headline font-bold">{challenges[0].title}</h2>
-                      <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-                        <span className={cn(
-                          'font-bold uppercase tracking-widest text-xs',
-                          challenges[0].difficulty === 'Easy' ? 'text-emerald-400' : 
-                          challenges[0].difficulty === 'Medium' ? 'text-yellow-400' : 'text-destructive'
-                        )}>
-                          {challenges[0].difficulty}
-                        </span>
-                        {challenges[0].points && (
-                          <span className="flex items-center gap-1">
-                            <Trophy className="w-3 h-3 text-primary" /> {challenges[0].points} XP
-                          </span>
-                        )}
-                        {challenges[0].timeLimit && (
-                          <span className="flex items-center gap-1">
-                            <Timer className="w-3 h-3" /> {challenges[0].timeLimit}
-                          </span>
-                        )}
-                      </div>
-                      {challenges[0].description && (
-                        <p className="text-sm text-muted-foreground">{challenges[0].description}</p>
-                      )}
-                    </div>
-                    <Button size="lg" className="shrink-0 gap-2">
-                      Solve Challenge <ChevronRight className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {daily && (
+              <ChallengeCard
+                title="Daily Challenge"
+                subtitle={daily.date}
+                icon={<Flame className="h-5 w-5 text-orange-400" />}
+                problem={problemById.get(daily.problemId)}
+                problemId={daily.problemId}
+              />
             )}
-
-            <div>
-              <h2 className="text-2xl font-headline font-bold mb-6">All Challenges</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {challenges.map((challenge: any) => {
-                  const progress = progressMap.get(challenge.id);
-                  const completed = progress?.completed;
-                  const currentProgress = progress?.progress || 0;
-                  const total = challenge.totalParts || 1;
-
-                  return (
-                    <Card key={challenge.id} className={cn(
-                      'bg-card/50 border-border hover:border-primary/30 transition-all',
-                      completed && 'border-emerald-500/30 bg-emerald-500/5'
-                    )}>
-                      <CardContent className="p-6">
-                        <div className="flex items-start justify-between mb-4">
-                          <div className="space-y-1">
-                            <h3 className="font-bold">{challenge.title}</h3>
-                            <Badge variant="outline" className={cn(
-                              'text-[11px] uppercase tracking-wider',
-                              challenge.difficulty === 'Hard' ? 'text-destructive border-destructive/30' :
-                              challenge.difficulty === 'Medium' ? 'text-yellow-400 border-yellow-400/30' :
-                              'text-emerald-400 border-emerald-400/30'
-                            )}>
-                              {challenge.difficulty}
-                            </Badge>
-                          </div>
-                          {completed ? (
-                            <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-                          ) : (
-                            <Lock className="w-5 h-5 text-muted-foreground" />
-                          )}
-                        </div>
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground">{challenge.points} XP</span>
-                          {total > 1 && (
-                            <span className="text-muted-foreground">{currentProgress}/{total} parts</span>
-                          )}
-                        </div>
-                        {total > 1 && (
-                          <div className="mt-2 h-1.5 bg-muted rounded-full overflow-hidden">
-                            <div className={cn(
-                              'h-full rounded-full transition-all',
-                              completed ? 'bg-emerald-400' : 'bg-primary'
-                            )} style={{ width: `${(currentProgress / total) * 100}%` }} />
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-            </div>
-          </>
+            {weekly && weekly.problemIds.map((problemId, index) => (
+              <ChallengeCard
+                key={`${weekly.week}-${problemId}`}
+                title={`Weekly Challenge · ${index + 1}`}
+                subtitle={weekly.week}
+                icon={<Timer className="h-5 w-5 text-primary" />}
+                problem={problemById.get(problemId)}
+                problemId={problemId}
+              />
+            ))}
+          </div>
         )}
       </div>
     </Shell>
+  );
+}
+
+function ChallengeCard({
+  title,
+  subtitle,
+  icon,
+  problem,
+  problemId,
+}: {
+  title: string;
+  subtitle: string;
+  icon: React.ReactNode;
+  problem?: { id: string; title: string; difficulty: string; category?: string };
+  problemId: string;
+}) {
+  return (
+    <Card className="border-border bg-card/50">
+      <CardContent className="flex items-start justify-between gap-4 p-5">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="mt-0.5">{icon}</div>
+          <div className="min-w-0 space-y-2">
+            <div>
+              <h2 className="font-semibold">{title}</h2>
+              <p className="text-xs text-muted-foreground">{subtitle}</p>
+            </div>
+            {problem ? (
+              <>
+                <p className="truncate text-sm font-medium">{problem.title}</p>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="outline">{problem.difficulty}</Badge>
+                  {problem.category && <Badge variant="outline">{problem.category}</Badge>}
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Configured problem {problemId} is not currently published.
+              </p>
+            )}
+          </div>
+        </div>
+        {problem ? (
+          <Button asChild size="sm" className="shrink-0 gap-1">
+            <Link href={`/practice?problem=${encodeURIComponent(problem.id)}`}>
+              Solve <ChevronRight className="h-4 w-4" />
+            </Link>
+          </Button>
+        ) : (
+          <Button size="sm" variant="outline" disabled className="shrink-0">
+            Unavailable
+          </Button>
+        )}
+      </CardContent>
+    </Card>
   );
 }

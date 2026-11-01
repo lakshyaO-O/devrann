@@ -92,6 +92,10 @@ export function CodeEditor({
     }
   }, [problemId, userId, initialCode, loadCode]);
 
+  useEffect(() => {
+    setCurrentLang(language);
+  }, [language]);
+
   const handleEditorDidMount = (editor: any, monaco: any) => {
     editorRef.current = editor;
 

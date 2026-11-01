@@ -35,45 +35,71 @@ export function useArenaMatchmaking() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const matchedEntryRef = useRef<MatchmakingEntry | null>(null);
+  const searchingRef = useRef(false);
+  const pollInFlightRef = useRef(false);
 
   useEffect(() => {
     if (!user?.uid) { setProfile(null); return; }
     let mounted = true;
     const { firestore: db } = initializeFirebase();
-    if (!db) return;
+    if (!db) {
+      setProfile(null);
+      setError('Arena matchmaking is unavailable because the database is not configured.');
+      return;
+    }
     getDoc(doc(db, 'users', user.uid)).then((snap: DocumentSnapshot<DocumentData>) => {
-      if (snap.exists() && mounted) {
-        const d = snap.data();
-        setProfile({
-          username: d.username || user.displayName || 'Player',
-          rating: d.rating || 800,
-          tier: d.tier || 'Beginner',
-        });
+      if (!mounted) return;
+      if (!snap.exists() || typeof snap.data().rating !== 'number') {
+        setProfile(null);
+        setError('Your account profile has no verified rating yet, so it cannot enter matchmaking.');
+        return;
       }
+      const data = snap.data();
+      setProfile({
+        username: data.username || user.displayName || 'Player',
+        rating: data.rating,
+        tier: data.tier || 'Beginner',
+      });
+      setError(null);
+    }).catch((cause: unknown) => {
+      if (!mounted) return;
+      setProfile(null);
+      setError(cause instanceof Error ? cause.message : 'Could not load your matchmaking profile.');
     });
     return () => { mounted = false; };
   }, [user?.uid, user?.displayName]);
 
-  useEffect(() => {
-    return () => {
-      if (unsubscribeRef.current) unsubscribeRef.current();
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
+  const stopQueueTimers = useCallback(() => {
+    searchingRef.current = false;
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
   }, []);
 
   const cleanup = useCallback(() => {
+    stopQueueTimers();
     if (unsubscribeRef.current) { unsubscribeRef.current(); unsubscribeRef.current = null; }
-    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
-  }, []);
+  }, [stopQueueTimers]);
+
+  useEffect(() => cleanup, [cleanup]);
 
   const joinQueue = useCallback(async () => {
-    if (!user?.uid || !profile) return;
+    if (!user?.uid) {
+      setError('Sign in before joining matchmaking.');
+      setStatus('error');
+      return;
+    }
+    if (!profile) {
+      setError('Your matchmaking profile is still loading or is missing a verified rating.');
+      setStatus('error');
+      return;
+    }
     cleanup();
     setStatus('joining');
     setError(null);
     setBattle(null);
     setOpponent(null);
     setQueueTime(0);
+    matchedEntryRef.current = null;
 
     try {
       await joinMatchmakingQueue(user.uid, {
@@ -89,6 +115,7 @@ export function useArenaMatchmaking() {
         region: settings.region,
         eloRange: settings.eloRange,
       });
+      searchingRef.current = true;
       setStatus('searching');
 
       timerRef.current = setInterval(() => {
@@ -97,37 +124,61 @@ export function useArenaMatchmaking() {
 
       unsubscribeRef.current = subscribeMatchmaking(user.uid, (entry) => {
         if (entry?.status === 'matched') {
-          // Passive side: creator already built the battle with our battleId in our entry.
           matchedEntryRef.current = entry;
+          setError(null);
           cleanup();
           setStatus('found');
         }
       });
 
       pollRef.current = setInterval(async () => {
-        if (!user?.uid) return;
-        if (status !== 'searching') return;
-        const found = await findMatch(user.uid, settings).catch(() => null);
-        if (found) {
-          setStatus('found');
-          setOpponent({ uid: found.userId, username: found.username, rating: found.rating, tier: found.tier });
+        if (!user.uid || !searchingRef.current || pollInFlightRef.current) return;
+        pollInFlightRef.current = true;
+        try {
+          const found = await findMatch(user.uid, settings);
+          if (found && searchingRef.current) {
+            setError(null);
+            setOpponent({ uid: found.userId, username: found.username, rating: found.rating, tier: found.tier });
+            setStatus('found');
+            stopQueueTimers();
+          }
+        } catch (cause) {
+          if (searchingRef.current) {
+            setError(cause instanceof Error ? cause.message : 'Matchmaking search failed.');
+            setStatus('error');
+            cleanup();
+            await leaveMatchmakingQueue(user.uid).catch(() => undefined);
+          }
+        } finally {
+          pollInFlightRef.current = false;
         }
       }, 3000);
     } catch (e: any) {
       setError(e?.message || 'Failed to join queue');
       setStatus('error');
+      cleanup();
     }
-  }, [user?.uid, profile, settings, cleanup, status]);
+  }, [user, profile, settings, cleanup, stopQueueTimers]);
 
   const leaveQueue = useCallback(async () => {
-    if (!user?.uid) return;
     cleanup();
+    matchedEntryRef.current = null;
+    if (!user?.uid) {
+      setStatus('idle');
+      setOpponent(null);
+      setQueueTime(0);
+      return;
+    }
     try {
       await leaveMatchmakingQueue(user.uid);
-    } catch { /* noop */ }
-    setStatus('idle');
-    setOpponent(null);
-    setQueueTime(0);
+      setError(null);
+      setStatus('idle');
+      setOpponent(null);
+      setQueueTime(0);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not leave the matchmaking queue.');
+      setStatus('error');
+    }
   }, [user?.uid, cleanup]);
 
   const acceptMatch = useCallback(async () => {
@@ -160,6 +211,7 @@ export function useArenaMatchmaking() {
           );
         }
         setStatus('ready');
+        cleanup();
       } catch (e: any) {
         setError(e?.message || 'Failed to join battle');
         setStatus('error');
@@ -201,16 +253,19 @@ export function useArenaMatchmaking() {
           examples: data.problem.examples || [],
           starterCode: data.problem.starterCode,
         });
+        cleanup();
         setStatus('ready');
       }
     } catch (e: any) {
       setError(e.message);
       setStatus('error');
     }
-  }, [user, opponent, profile, settings]);
+  }, [user, opponent, profile, settings, cleanup]);
 
   return {
     status, opponent, battle, problem, error, queueTime,
+    profileReady: profile !== null,
+    rated: settings.rated,
     joinQueue, leaveQueue, acceptMatch,
   };
 }

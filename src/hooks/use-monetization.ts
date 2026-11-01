@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { initializeFirebase } from '@/firebase';
-import { doc, getDoc, updateDoc, increment, addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, increment } from 'firebase/firestore';
 import { SubscriptionTier } from '@/app/lib/types';
 
 const SUBSCRIPTION_BENEFITS: Record<SubscriptionTier, string[]> = {
@@ -66,14 +66,6 @@ export function useMonetization(userId: string | null) {
       await Promise.all([
         updateDoc(doc(db, 'users', refData.userId), { coins: increment(100), xp: increment(50) }),
         updateDoc(doc(db, 'users', userId), { coins: increment(50), xp: increment(25), referredBy: refData.userId }),
-        addDoc(collection(db, 'users', refData.userId, 'notifications'), {
-          type: 'achievement_unlock',
-          title: 'Referral Reward!',
-          message: 'Someone used your referral code! +100 coins, +50 XP',
-          data: {},
-          read: false,
-          createdAt: serverTimestamp(),
-        }),
       ]);
       return true;
     } catch { return false; }

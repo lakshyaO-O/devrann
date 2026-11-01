@@ -3,15 +3,16 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { initializeFirebase } from '@/firebase';
 import {
-  collection, addDoc, doc, updateDoc, getDoc, query, where, onSnapshot, orderBy, limit, serverTimestamp,
+  collection, doc, updateDoc, query, onSnapshot, orderBy, limit,
 } from 'firebase/firestore';
 import type { QueryDocumentSnapshot, DocumentData, QuerySnapshot } from 'firebase/firestore';
-import { Notification, NotificationType } from '@/app/lib/types';
+import { Notification } from '@/app/lib/types';
 
 export function useNotifications(userId: string | null) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
+  const soundEnabledRef = useRef(true);
 
   useEffect(() => {
     if (!userId) { setNotifications([]); setLoading(false); return; }
@@ -19,14 +20,26 @@ export function useNotifications(userId: string | null) {
     let unsub: (() => void) | null = null;
     const { firestore: db } = initializeFirebase();
     if (!db) { setLoading(false); return; }
+    let firstSnapshot = true;
+    const preferenceUnsubscribe = onSnapshot(doc(db, 'users', userId), (snapshot) => {
+      soundEnabledRef.current = snapshot.data()?.notificationPreferences?.soundEnabled !== false;
+    });
     const q = query(collection(db, 'users', userId, 'notifications'), orderBy('createdAt', 'desc'), limit(50));
     unsub = onSnapshot(q, (snap: QuerySnapshot<DocumentData>) => {
       const notifs: Notification[] = snap.docs.map((d: QueryDocumentSnapshot<DocumentData>) => ({ id: d.id, ...d.data() } as Notification));
+      if (!firstSnapshot && soundEnabledRef.current
+        && snap.docChanges().some((change) => change.type === 'added')) {
+        playNotificationTone();
+      }
+      firstSnapshot = false;
       setNotifications(notifs);
       setUnreadCount(notifs.filter(n => !n.read).length);
       setLoading(false);
     }, () => { setLoading(false); });
-    return () => { if (unsub) unsub(); };
+    return () => {
+      if (unsub) unsub();
+      preferenceUnsubscribe();
+    };
   }, [userId]);
 
   const markAsRead = useCallback(async (notificationId: string) => {
@@ -55,24 +68,23 @@ export function useNotifications(userId: string | null) {
   return { notifications, loading, unreadCount, markAsRead, markAllAsRead };
 }
 
-const sentCache = new Set<string>();
-
-export function useSendNotification() {
-  const sendNotification = useCallback(async (params: {
-    userId: string; type: NotificationType; title: string; message: string; data?: Record<string, any>;
-  }) => {
-    const cacheKey = `${params.userId}:${params.type}:${Date.now()}`;
-    if (sentCache.has(cacheKey)) return;
-    sentCache.add(cacheKey);
-    setTimeout(() => sentCache.delete(cacheKey), 5000);
-    try {
-      const { firestore: db } = initializeFirebase();
-      if (!db) return;
-      await addDoc(collection(db, 'users', params.userId, 'notifications'), {
-        userId: params.userId, type: params.type, title: params.title,
-        message: params.message, data: params.data || {}, read: false, createdAt: serverTimestamp(),
-      });
-    } catch { /* ignore */ }
-  }, []);
-  return { sendNotification };
+function playNotificationTone() {
+  if (typeof window === 'undefined') return;
+  const AudioContextConstructor = window.AudioContext;
+  if (!AudioContextConstructor) return;
+  try {
+    const context = new AudioContextConstructor();
+    const oscillator = context.createOscillator();
+    const volume = context.createGain();
+    oscillator.frequency.value = 660;
+    volume.gain.setValueAtTime(0.06, context.currentTime);
+    volume.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.12);
+    oscillator.connect(volume);
+    volume.connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.12);
+    oscillator.onended = () => { void context.close(); };
+  } catch (error) {
+    console.warn('[Notifications] Unable to play notification tone', error);
+  }
 }

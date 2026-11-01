@@ -1,198 +1,136 @@
 'use client';
 
-import React, { useState } from 'react';
 import { Shell } from '@/components/layout/Shell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Switch } from '@/components/ui/switch';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Separator } from '@/components/ui/separator';
-import {
-  Github, Link2, Unlink, RefreshCw, CheckCircle2, Loader2,
-  AlertCircle, ChevronRight, Star, GitFork, Clock, Globe,
-} from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { AlertCircle, Github, GitFork, Loader2, RefreshCw, Star } from 'lucide-react';
+import { useUser } from '@/firebase/auth/use-user';
+import { useDoc } from '@/firebase/firestore/use-doc';
 
-const mockConnected = true;
-const mockUser = {
-  githubUsername: 'alice_dev',
-  avatar: '',
-  publicRepos: 24,
-  joinedDate: '2024-03-15',
-};
+interface GitHubRepository {
+  name: string;
+  description: string;
+  url: string;
+  language: string;
+  stars: number;
+  forks: number;
+  updatedAt: string;
+}
 
-const mockRepos = [
-  { name: 'devflow', stars: 234, forks: 56, language: 'TypeScript', description: 'Real-time collaborative code editor', updatedAt: '2 days ago', synced: true },
-  { name: 'cloudboard', stars: 89, forks: 23, language: 'TypeScript', description: 'Online whiteboard for remote teams', updatedAt: '1 week ago', synced: true },
-  { name: 'algorithms', stars: 45, forks: 12, language: 'Python', description: 'Algorithm implementations and practice', updatedAt: '2 weeks ago', synced: false },
-  { name: 'portfolio', stars: 67, forks: 34, language: 'HTML', description: 'Personal portfolio website', updatedAt: '3 weeks ago', synced: true },
-  { name: 'api-forge', stars: 210, forks: 67, language: 'Go', description: 'CLI tool for REST API boilerplate', updatedAt: '1 month ago', synced: false },
-];
+interface GitHubIntegration {
+  connected?: boolean;
+  githubUsername?: string;
+  repos?: GitHubRepository[];
+  lastSynced?: string;
+}
+
+function formatUpdatedAt(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'Unknown' : date.toLocaleDateString();
+}
 
 export default function GithubSettingsPage() {
-  const [connected, setConnected] = useState(mockConnected);
-  const [syncing, setSyncing] = useState(false);
-  const [autoSync, setAutoSync] = useState(true);
-  const [syncedRepos, setSyncedRepos] = useState<Set<string>>(new Set(mockRepos.filter(r => r.synced).map(r => r.name)));
-
-  const handleSync = (repoName: string) => {
-    setSyncing(true);
-    setTimeout(() => {
-      setSyncedRepos(prev => new Set(prev).add(repoName));
-      setSyncing(false);
-    }, 1000);
-  };
-
-  const handleSyncAll = () => {
-    setSyncing(true);
-    setTimeout(() => {
-      setSyncedRepos(new Set(mockRepos.map(r => r.name)));
-      setSyncing(false);
-    }, 1500);
-  };
-
-  const handleDisconnect = () => {
-    setConnected(false);
-    setSyncedRepos(new Set());
-  };
+  const { user, loading: authLoading } = useUser();
+  const { data, loading, error } = useDoc(
+    user ? `users/${user.uid}/github/integration` : null,
+  );
+  const integration = data as GitHubIntegration | null;
+  const repos = Array.isArray(integration?.repos) ? integration.repos : [];
 
   return (
     <Shell>
-      <div className="space-y-8">
-        <div className="space-y-2">
-          <h1 className="text-4xl font-headline font-bold text-foreground">
-            GitHub
-          </h1>
-          <p className="text-muted-foreground">Connect your GitHub account to showcase your repositories.</p>
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-4xl font-headline font-bold text-foreground">GitHub</h1>
+          <p className="text-muted-foreground">Repository details shown here come from your saved GitHub integration.</p>
         </div>
 
-        {!connected ? (
-          <Card className="border-primary/30 bg-primary/5">
-            <CardContent className="p-8 text-center space-y-4">
-              <div className="w-16 h-16 rounded-2xl bg-muted/30 flex items-center justify-center mx-auto">
-                <Github className="w-8 h-8 text-foreground" />
-              </div>
-              <div>
-                <h2 className="text-xl font-headline font-bold">Connect GitHub</h2>
-                <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">
-                  Link your GitHub account to automatically display your repositories on your profile. We&apos;ll only access public information.
-                </p>
-              </div>
-              <Button size="lg" className="gap-2">
-                <Github className="w-5 h-5" /> Connect with GitHub
-              </Button>
+        {authLoading || loading ? (
+          <div className="flex min-h-48 items-center justify-center" aria-label="Loading GitHub integration">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          </div>
+        ) : !user ? (
+          <Card>
+            <CardContent className="p-8 text-center">
+              <Github className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
+              <h2 className="font-semibold">Sign in to view your GitHub integration</h2>
+            </CardContent>
+          </Card>
+        ) : error ? (
+          <Card role="alert" className="border-destructive/40">
+            <CardContent className="flex items-center gap-3 p-5 text-sm text-destructive">
+              <AlertCircle className="h-5 w-5 shrink-0" />
+              Unable to read your GitHub integration. Check your connection and reload this page.
+            </CardContent>
+          </Card>
+        ) : !integration?.connected ? (
+          <Card>
+            <CardContent className="space-y-3 p-8 text-center">
+              <Github className="mx-auto h-8 w-8 text-muted-foreground" />
+              <h2 className="font-semibold">No GitHub account connected</h2>
+              <p className="mx-auto max-w-lg text-sm text-muted-foreground">
+                Repository sync is not available yet. This page will show repositories after a GitHub OAuth connection is completed; it will not display sample accounts or pretend to sync.
+              </p>
             </CardContent>
           </Card>
         ) : (
           <>
-            <Card className="border-emerald-500/30 bg-emerald-500/5">
-              <CardContent className="p-6">
-                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                  <div className="flex items-center gap-4">
-                    <Avatar className="w-14 h-14 border-2 border-emerald-500/30">
-                      <AvatarImage src={mockUser.avatar} />
-                      <AvatarFallback className="bg-emerald-500/10 text-emerald-400 text-lg font-bold">
-                        {mockUser.githubUsername[0].toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h2 className="text-xl font-headline font-bold">{mockUser.githubUsername}</h2>
-                        <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[9px] uppercase tracking-widest">
-                          <CheckCircle2 className="w-2.5 h-2.5 mr-1" /> Connected
-                        </Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        {mockUser.publicRepos} public repositories · Joined {mockUser.joinedDate}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" className="gap-2" onClick={handleSyncAll} disabled={syncing}>
-                      <RefreshCw className={cn('w-3 h-3', syncing && 'animate-spin')} /> Sync All
-                    </Button>
-                    <Button variant="destructive" size="sm" className="gap-2" onClick={handleDisconnect}>
-                      <Unlink className="w-3 h-3" /> Disconnect
-                    </Button>
+            <Card>
+              <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3">
+                  <Avatar>
+                    <AvatarFallback><Github className="h-5 w-5" /></AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <h2 className="font-semibold">{integration.githubUsername || 'GitHub account'}</h2>
+                    <p className="text-sm text-muted-foreground">
+                      {repos.length} saved repositories
+                      {integration.lastSynced ? ` · Last synced ${formatUpdatedAt(integration.lastSynced)}` : ''}
+                    </p>
                   </div>
                 </div>
+                <Badge variant="outline">Connected</Badge>
               </CardContent>
             </Card>
 
-            <Card className="bg-card/50 border-border">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <p className="font-bold text-sm">Auto-sync</p>
-                    <p className="text-xs text-muted-foreground">Automatically sync repositories when you visit this page.</p>
-                  </div>
-                  <Switch checked={autoSync} onCheckedChange={setAutoSync} />
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-card/50 border-border">
+            <Card>
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-headline font-bold uppercase tracking-widest flex items-center gap-2">
-                    <Github className="w-4 h-4" /> Repositories
-                  </CardTitle>
-                  <Badge variant="outline" className="text-[11px] uppercase tracking-wider">
-                    {syncedRepos.size}/{mockRepos.length} synced
-                  </Badge>
-                </div>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Github className="h-4 w-4" /> Repositories
+                </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  {mockRepos.map((repo) => {
-                    const isSynced = syncedRepos.has(repo.name);
-                    return (
-                      <Card key={repo.name} className={cn(
-                        'bg-muted/20 border-border/50 transition-all',
-                        isSynced && 'border-emerald-500/20',
-                      )}>
-                        <CardContent className="p-4">
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-2">
-                                <p className="font-bold text-sm truncate">{repo.name}</p>
-                                {isSynced && (
-                                  <Badge variant="outline" className="text-[8px] uppercase tracking-widest text-emerald-400 border-emerald-400/30">
-                                    <CheckCircle2 className="w-2 h-2 mr-0.5" /> Synced
-                                  </Badge>
-                                )}
-                              </div>
-                              <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{repo.description}</p>
-                              <div className="flex items-center gap-3 mt-2 text-[10px] text-muted-foreground">
-                                <Badge variant="secondary" className="text-[8px] uppercase tracking-widest">{repo.language}</Badge>
-                                <span className="flex items-center gap-1"><Star className="w-2.5 h-2.5" /> {repo.stars}</span>
-                                <span className="flex items-center gap-1"><GitFork className="w-2.5 h-2.5" /> {repo.forks}</span>
-                                <span className="flex items-center gap-1"><Clock className="w-2.5 h-2.5" /> {repo.updatedAt}</span>
-                              </div>
-                            </div>
-                            <Button
-                              variant={isSynced ? 'ghost' : 'outline'}
-                              size="sm"
-                              className="shrink-0 text-xs gap-1"
-                              onClick={() => handleSync(repo.name)}
-                              disabled={isSynced || syncing}
-                            >
-                              {isSynced ? (
-                                <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                              ) : syncing ? (
-                                <Loader2 className="w-3 h-3 animate-spin" />
-                              ) : (
-                                <RefreshCw className="w-3 h-3" />
-                              )}
-                              {isSynced ? 'Synced' : 'Sync'}
-                            </Button>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
-                </div>
+              <CardContent className="space-y-3">
+                {repos.length === 0 ? (
+                  <p className="py-6 text-center text-sm text-muted-foreground">No repositories have been saved from GitHub yet.</p>
+                ) : repos.map((repo) => (
+                  <div key={repo.url || repo.name} className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      {repo.url ? (
+                        <a className="font-medium hover:text-primary" href={repo.url} target="_blank" rel="noopener noreferrer">
+                          {repo.name}
+                        </a>
+                      ) : (
+                        <p className="font-medium">{repo.name}</p>
+                      )}
+                      <p className="mt-1 text-sm text-muted-foreground">{repo.description || 'No description provided.'}</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                        {repo.language && <span>{repo.language}</span>}
+                        <span className="inline-flex items-center gap-1"><Star className="h-3 w-3" />{repo.stars}</span>
+                        <span className="inline-flex items-center gap-1"><GitFork className="h-3 w-3" />{repo.forks}</span>
+                        <span>Updated {formatUpdatedAt(repo.updatedAt)}</span>
+                      </div>
+                    </div>
+                    {repo.url && (
+                      <Button asChild size="sm" variant="outline">
+                        <a href={repo.url} target="_blank" rel="noopener noreferrer">
+                          <RefreshCw className="mr-2 h-3 w-3" /> View on GitHub
+                        </a>
+                      </Button>
+                    )}
+                  </div>
+                ))}
               </CardContent>
             </Card>
           </>

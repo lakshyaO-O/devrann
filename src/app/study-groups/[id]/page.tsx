@@ -46,8 +46,11 @@ export default function StudyGroupDetailPage() {
         setGroup({ id: snap.id, ...snap.data() } as StudyGroup);
         const memberIds = snap.data().memberIds || [];
         Promise.all(memberIds.map(async (uid: string) => {
-          const u = await getDoc(doc(db, 'users', uid));
-          if (u.exists()) return { uid, ...u.data() };
+          const response = await fetch(`/api/public/profiles?uid=${encodeURIComponent(uid)}`, { cache: 'no-store' });
+          if (response.ok) {
+            const result = await response.json();
+            return { uid, ...result.profile };
+          }
           return { uid, username: 'Unknown', photoURL: '' };
         })).then(setMembers);
       }

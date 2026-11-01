@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useArenaMatchmaking } from '@/hooks/use-arena-matchmaking';
 import { QueueStatus } from './QueueStatus';
 import { MatchmakingAnimation } from './MatchmakingAnimation';
@@ -9,36 +9,24 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { cn } from '@/lib/utils';
-import { Swords, Settings, DoorOpen, Hash, Copy, Check, Loader2 } from 'lucide-react';
-import { useUser } from '@/firebase/auth/use-user';
+import { Swords, Settings, DoorOpen, Loader2 } from 'lucide-react';
 import { GuestGate } from '@/components/auth/GuestGate';
+import { usePracticeProblems } from '@/hooks/use-practice-problems';
 
 interface MatchmakingProps {
   onMatchFound: (opponent: { id: string; username: string; rating: number; tier: string }, battleId?: string) => void;
+  onSelectPrivateRoom: () => void;
 }
 
-export function Matchmaking({ onMatchFound }: MatchmakingProps) {
-    const { status, opponent, battle, error, queueTime, joinQueue, leaveQueue, acceptMatch } = useArenaMatchmaking();
+export function Matchmaking({ onMatchFound, onSelectPrivateRoom }: MatchmakingProps) {
+  const {
+    status, opponent, battle, error, queueTime, profileReady, rated, joinQueue, leaveQueue, acceptMatch,
+  } = useArenaMatchmaking();
+  const {
+    problems, loading: problemsLoading, error: problemsError,
+  } = usePracticeProblems();
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [privateRoomOpen, setPrivateRoomOpen] = useState(false);
-  const [roomCode, setRoomCode] = useState('');
-  const [copied, setCopied] = useState(false);
-
-  const generateRoomCode = useCallback(() => {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let code = '';
-    for (let i = 0; i < 8; i++) {
-      code += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    setRoomCode(code);
-  }, []);
-
-  const handleCopyCode = useCallback(() => {
-    navigator.clipboard.writeText(roomCode);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }, [roomCode]);
+  const canJoinQueue = profileReady && !problemsLoading && !problemsError && problems.length > 0;
 
   useEffect(() => {
     if (status === 'ready' && opponent && battle) {
@@ -129,13 +117,13 @@ export function Matchmaking({ onMatchFound }: MatchmakingProps) {
       <div className="text-center space-y-4">
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-primary/30 bg-primary/5 text-primary text-xs font-headline font-bold uppercase tracking-widest">
           <Swords className="w-3.5 h-3.5" />
-          1v1 Rated Battle
+          1v1 {rated ? 'Rated' : 'Casual'} Battle
         </div>
         <h2 className="text-4xl font-headline font-bold text-foreground uppercase tracking-tighter">
           Find Your Match
         </h2>
         <p className="text-muted-foreground max-w-md mx-auto">
-          Enter the arena and face opponents within your skill bracket. Earn rating points and climb the leaderboard.
+          Enter the arena and face opponents within your skill bracket. {rated ? 'Verified results affect your rating.' : 'Casual results do not affect your rating.'}
         </p>
       </div>
 
@@ -144,6 +132,16 @@ export function Matchmaking({ onMatchFound }: MatchmakingProps) {
           <p className="text-sm text-destructive font-mono">{error}</p>
         </div>
       )}
+
+      {problemsError ? (
+        <p role="alert" className="text-sm text-destructive">
+          Published problems could not be loaded, so matchmaking is unavailable. Retry from the Practice page.
+        </p>
+      ) : !problemsLoading && problems.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Matchmaking is unavailable until at least one problem is published.
+        </p>
+      ) : null}
 
       {status === 'joining' ? (
         <div className="flex items-center gap-3">
@@ -159,6 +157,7 @@ export function Matchmaking({ onMatchFound }: MatchmakingProps) {
               <Button
                 size="lg"
                 onClick={joinQueue}
+                disabled={!canJoinQueue}
                 className="h-16 px-12 text-lg font-headline font-bold bg-primary text-background hover:bg-primary/90 rounded-none transform transition-transform hover:scale-105 group relative overflow-hidden"
               >
                 <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
@@ -166,57 +165,15 @@ export function Matchmaking({ onMatchFound }: MatchmakingProps) {
               </Button>
             </GuestGate>
 
-            <Dialog open={privateRoomOpen} onOpenChange={setPrivateRoomOpen}>
-              <DialogTrigger asChild>
-                <Button
-                  size="lg"
-                  variant="outline"
-                  className="h-16 px-12 text-lg font-headline font-bold border-primary/50 text-primary hover:bg-primary/10 rounded-none transform transition-transform hover:scale-105"
-                >
-                  <DoorOpen className="w-5 h-5" />
-                  PRIVATE ROOM
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-md bg-card border-border">
-                <DialogHeader>
-                  <DialogTitle className="flex items-center gap-2 font-headline">
-                    <Hash className="w-5 h-5 text-primary" />
-                    Private Room
-                  </DialogTitle>
-                </DialogHeader>
-                <div className="space-y-6 py-4">
-                  <div className="text-center space-y-2">
-                    <p className="text-sm text-muted-foreground">
-                      Create a private room and share the code with a friend to battle.
-                    </p>
-                  </div>
-                  {roomCode ? (
-                    <div className="flex flex-col items-center gap-4">
-                      <div className="text-4xl font-mono font-bold tracking-[0.25em] text-primary">
-                        {roomCode}
-                      </div>
-                      <Button variant="outline" size="sm" onClick={handleCopyCode} className="gap-2">
-                        {copied ? (
-                          <><Check className="w-4 h-4 text-green-500" /> Copied</>
-                        ) : (
-                          <><Copy className="w-4 h-4" /> Copy Code</>
-                        )}
-                      </Button>
-                    </div>
-                  ) : (
-                    <Button onClick={generateRoomCode} className="w-full gap-2" size="lg">
-                      <Hash className="w-5 h-5" />
-                      GENERATE ROOM CODE
-                    </Button>
-                  )}
-                  <div className="flex justify-end gap-3">
-                    <Button variant="ghost" onClick={() => { setPrivateRoomOpen(false); setRoomCode(''); }}>
-                      Close
-                    </Button>
-                  </div>
-                </div>
-              </DialogContent>
-            </Dialog>
+            <Button
+              size="lg"
+              variant="outline"
+              onClick={onSelectPrivateRoom}
+              className="h-16 px-12 text-lg font-headline font-bold border-primary/50 text-primary hover:bg-primary/10 rounded-none"
+            >
+              <DoorOpen className="w-5 h-5" />
+              PRIVATE ROOM
+            </Button>
           </div>
 
           <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>

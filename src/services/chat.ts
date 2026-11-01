@@ -39,7 +39,7 @@ export async function createOrGetChat(uid1: string, uid2: string): Promise<strin
 
   const [user1Snap, user2Snap] = await Promise.all([
     getDoc(doc(db, 'users', uid1)),
-    getDoc(doc(db, 'users', uid2)),
+    getDoc(doc(db, 'users', uid1, 'friends', uid2)),
   ]);
   const u1 = user1Snap.data();
   const u2 = user2Snap.data();
@@ -300,10 +300,37 @@ export async function loadMoreMessages(
 export async function getUserProfile(userId: string): Promise<{ username: string; photoURL: string; onlineStatus: string } | null> {
   const { firestore: db } = initializeFirebase();
   if (!db) return null;
-  const snap = await getDoc(doc(db, 'users', userId));
-  if (!snap.exists()) return null;
-  const d = snap.data();
-  return { username: d.username || 'User', photoURL: d.photoURL || '', onlineStatus: d.onlineStatus || 'offline' };
+  const currentUser = initializeFirebase().auth?.currentUser;
+  if (!currentUser) return null;
+  if (currentUser.uid === userId) {
+    return {
+      username: currentUser.displayName || 'User',
+      photoURL: currentUser.photoURL || '',
+      onlineStatus: 'online',
+    };
+  }
+  const friendSnap = await getDoc(doc(db, 'users', currentUser.uid, 'friends', userId));
+  if (friendSnap.exists()) {
+    const data = friendSnap.data();
+    return {
+      username: typeof data.username === 'string' ? data.username : 'User',
+      photoURL: typeof data.photoURL === 'string' ? data.photoURL : '',
+      onlineStatus: typeof data.onlineStatus === 'string' ? data.onlineStatus : 'offline',
+    };
+  }
+  const token = await currentUser.getIdToken();
+  const response = await fetch(`/api/public/profiles?uid=${encodeURIComponent(userId)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: 'no-store',
+  });
+  if (!response.ok) return null;
+  const result = await response.json();
+  const profile = result.profile;
+  return {
+    username: typeof profile.username === 'string' ? profile.username : 'User',
+    photoURL: typeof profile.photoURL === 'string' ? profile.photoURL : '',
+    onlineStatus: typeof profile.onlineStatus === 'string' ? profile.onlineStatus : 'offline',
+  };
 }
 
 // ===== DELETE CHAT (soft) =====

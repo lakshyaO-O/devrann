@@ -20,7 +20,8 @@ import { toggleBookmark } from '@/services/practice';
 import { useAppStore } from '@/store/app-store';
 import { useJudgeStatus } from '@/hooks/use-judge-status';
 import { JudgeStatusBanner, JudgeStatusBadge } from '@/components/judge';
-import type { PracticeProblemDocument, CodingLanguage } from '@/types';
+import { useDoc } from '@/firebase/firestore/use-doc';
+import type { PracticeProblemDocument, CodingLanguage, EditorTheme } from '@/types';
 
 interface PracticeWorkbenchProps {
   problem: PracticeProblemDocument;
@@ -44,14 +45,33 @@ export function PracticeWorkbench({
 
   const { progress } = useUserProgress(userId);
   const userProgress = progress[problem.id];
+  const { data: userSettings } = useDoc(userId ? `users/${userId}` : null);
 
   const session = usePracticeSession(userId, username, problem);
   const judgeStatus = useJudgeStatus();
   const judgeAvailable = judgeStatus.status === 'ONLINE';
+  const preferredLanguageApplied = useRef(false);
+  const supportedThemes: EditorTheme[] = ['vs-dark', 'vs-light', 'monokai', 'dracula', 'nord', 'hc-black'];
+  const editorTheme = supportedThemes.includes(userSettings?.editorTheme as EditorTheme)
+    ? userSettings?.editorTheme as EditorTheme
+    : 'vs-dark';
+  const editorFontSize = typeof userSettings?.editorFontSize === 'number'
+    ? Math.max(10, Math.min(24, userSettings.editorFontSize))
+    : 14;
+  const setPreferredLanguage = session.setLanguage;
 
   useEffect(() => {
-    if (session.testResults.length > 0) setActiveTab('results');
-  }, [session.testResults]);
+    if (!userSettings || preferredLanguageApplied.current) return;
+    const language = userSettings.preferredLanguage;
+    if (typeof language === 'string' && Object.keys(problem.starterCode).includes(language)) {
+      setPreferredLanguage(language as CodingLanguage);
+    }
+    preferredLanguageApplied.current = true;
+  }, [userSettings, problem.starterCode, setPreferredLanguage]);
+
+  useEffect(() => {
+    if (session.testResults.length > 0 || session.error) setActiveTab('results');
+  }, [session.testResults, session.error]);
 
   useEffect(() => {
     if (session.verdict) setActiveTab('submission');
@@ -212,6 +232,8 @@ export function PracticeWorkbench({
               userId={userId}
               onChange={session.setCode}
               height="100%"
+              editorTheme={editorTheme}
+              fontSize={editorFontSize}
             />
           </div>
           <ConsolePanel
@@ -248,6 +270,8 @@ export function PracticeWorkbench({
                   userId={userId}
                   onChange={session.setCode}
                   height="300px"
+                  editorTheme={editorTheme}
+                  fontSize={editorFontSize}
                 />
               </div>
               <ConsolePanel
@@ -400,32 +424,46 @@ function ConsolePanel({
           </div>
         )}
         {activeTab === 'results' && (
-          <TestResults
-            results={session.testResults}
-            isRunning={session.isRunning}
-            phase={session.phase}
-            currentTest={session.currentTest}
-            totalTests={session.totalTests}
-            phaseMessage={session.phaseMessage}
-          />
+          <>
+            {session.error && (
+              <p role="alert" className="mb-3 rounded border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive">
+                {session.error}
+              </p>
+            )}
+            <TestResults
+              results={session.testResults}
+              isRunning={session.isRunning}
+              phase={session.phase}
+              currentTest={session.currentTest}
+              totalTests={session.totalTests}
+              phaseMessage={session.phaseMessage}
+            />
+          </>
         )}
         {activeTab === 'submission' && (
-          <SubmissionResult
-            verdict={session.verdict}
-            passedTestCases={session.passedTestCases}
-            totalTestCases={session.totalTestCases}
-            executionTimeMs={session.executionTimeMs}
-            memoryUsedKb={session.memoryUsedKb}
-            compileTimeMs={session.compileTimeMs}
-            codeSize={session.codeSize}
-            language={session.language}
-            status={session.isSubmitting ? 'running' : session.verdict ? 'completed' : 'pending'}
-            phase={session.phase}
-            phaseMessage={session.phaseMessage}
-            testResults={session.testResults}
-            problemTimeLimit={timeLimitMs}
-            problemMemoryLimit={memoryLimitKb}
-          />
+          <>
+            {session.error && (
+              <p role="alert" className="mb-3 rounded border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive">
+                {session.error}
+              </p>
+            )}
+            <SubmissionResult
+              verdict={session.verdict}
+              passedTestCases={session.passedTestCases}
+              totalTestCases={session.totalTestCases}
+              executionTimeMs={session.executionTimeMs}
+              memoryUsedKb={session.memoryUsedKb}
+              compileTimeMs={session.compileTimeMs}
+              codeSize={session.codeSize}
+              language={session.language}
+              status={session.isSubmitting ? 'running' : session.verdict ? 'completed' : 'pending'}
+              phase={session.phase}
+              phaseMessage={session.phaseMessage}
+              testResults={session.testResults}
+              problemTimeLimit={timeLimitMs}
+              problemMemoryLimit={memoryLimitKb}
+            />
+          </>
         )}
       </ScrollArea>
     </div>

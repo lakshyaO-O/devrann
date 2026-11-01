@@ -13,8 +13,7 @@ import { useUser } from '@/firebase/auth/use-user';
 import { useFriends } from '@/hooks/use-friends';
 import { sendRoomInvite } from '@/services/arena';
 import { initializeFirebase } from '@/firebase';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import type { QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 
 interface FriendInviteDialogProps {
   roomId: string;
@@ -63,14 +62,13 @@ export function FriendInviteDialog({ roomId, roomCode }: FriendInviteDialogProps
     try {
       const { firestore: db } = initializeFirebase();
       if (!db) { setManualStatus({ type: 'error', message: 'Firebase unavailable' }); return; }
-      const q = query(collection(db, 'users'), where('username', '==', manualUsername.trim()));
-      const snap = await getDocs(q);
-      const targetUser = snap.docs.find((d: QueryDocumentSnapshot<DocumentData>) => d.id !== user.uid);
-      if (!targetUser) {
+      const usernameSnap = await getDoc(doc(db, 'usernames', manualUsername.trim().toLowerCase()));
+      const targetUserId = usernameSnap.exists() ? usernameSnap.data().userId : '';
+      if (!targetUserId || targetUserId === user.uid) {
         setManualStatus({ type: 'not_found', message: 'User not found' });
         return;
       }
-      await sendRoomInvite(user.uid, user.displayName || 'Player', targetUser.id, roomId, roomCode);
+      await sendRoomInvite(user.uid, user.displayName || 'Player', targetUserId, roomId, roomCode);
       setManualStatus({ type: 'sent', message: `Invite sent to ${manualUsername.trim()}!` });
       setManualUsername('');
     } catch {

@@ -27,8 +27,8 @@ export function useDailyChallenge(userId: string | null) {
 
   const claim = useCallback(async () => {
     if (!userId || !daily || status?.claimed) return;
-    await claimDailyChallengeXp(userId, daily.xpBonus);
-    addXp(daily.xpBonus);
+    const xpAwarded = await claimDailyChallengeXp(userId);
+    addXp(xpAwarded);
     setStatus(prev => prev ? { ...prev, claimed: true } : null);
   }, [userId, daily, status, addXp]);
 
