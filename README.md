@@ -1,6 +1,12 @@
 # DevRann — Competitive Coding Arena
 
-The ultimate esports-inspired competitive coding platform. Compete in 1v1 battles, climb the ELO ladder, solve challenges, and become a legendary architect.
+**Live:** https://devrann.vercel.app · **Portfolio:** https://lakshyaO-O.github.io/portfolio/
+
+An esports-inspired competitive coding platform. Compete in 1v1 battles, climb the ELO ladder, solve challenges, and build a consistent practice habit.
+
+## Project status
+
+Active student project (alpha). Core areas — authentication, arena battles, practice problems, leaderboards, profiles and social pages — exist in the codebase and are under ongoing development. AI features and the Android build are newer and may change between updates. Without Firebase credentials the app runs in **demo mode** (localStorage + mock data).
 
 ## Tech Stack
 
@@ -179,4 +185,4 @@ vercel --prod
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).

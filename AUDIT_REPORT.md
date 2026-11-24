@@ -38,7 +38,7 @@ DevRann is a Next.js 15.5.9 (App Router) competitive coding platform with Fireba
 **Files:** `.env.local`, `.env.production`, `.env.vercel`  
 **Evidence:** These files contain live credentials in the repository:
 - `GEMINI_API_KEY=AQ.Ab8RN6K0xE3O7_jFz7GE8pMJEDUlu2GXuRcbzzjGHkYIPOflZg`
-- `NEXT_PUBLIC_FIREBASE_API_KEY=AIzaSyAZF5e8O8zQMswjwyE6EfCWjrhnYpP-nfI`
+- `NEXT_PUBLIC_FIREBASE_API_KEY=<firebase-web-api-key>`
 - `VERCEL_OIDC_TOKEN=eyJ...` (JWT token for Vercel deployment)
 - `FIREBASE_CLIENT_EMAIL` and `FIREBASE_PRIVATE_KEY` listed in `.env.example` (expected to be populated)
 - **Impact:** Anyone with repo access can use the Gemini API key, Firebase project credentials, and Vercel deployment tokens. The Vercel OIDC token allows authenticating as the project's Vercel environment.
