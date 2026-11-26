@@ -1,7 +1,8 @@
 # Judge0 CE — Self-Hosted Code Execution Engine
 
-Production-ready Docker Compose deployment of [Judge0 CE v1.13.1](https://github.com/judge0/judge0)
-for DevRann. Supports JavaScript, TypeScript, Python, Java, C++, Go, and Rust.
+Docker Compose deployment of [Judge0 CE v1.13.1](https://github.com/judge0/judge0)
+for isolated testing and deployment preparation. The mappings below are candidates from the
+Judge0 CE language API; they are not proof that this pinned image has passed DevRann integration tests.
 
 ## Architecture
 
@@ -107,19 +108,25 @@ curl -X POST http://localhost:2358/api/v1/submissions \
 | `JUDGE0_API_KEY` | **yes** | Must match `JUDGE0_AUTH_TOKEN` from Judge0 .env |
 | `JUDGE_RATE_LIMIT` | no | Max API calls per 60s per user (default: 10) |
 
-## Language IDs
+## Candidate language IDs
 
-Judge0 uses numeric language IDs. The DevRann judge-engine.ts maps them automatically:
+Judge0 uses numeric language IDs that may differ between server releases. The current CE language
+API exposed the following IDs when this integration was researched; the app currently maps them
+server-side. Before enabling a language in the UI, verify it against the deployed instance's
+`/languages` response and run accepted, incorrect, compile-error, runtime-error, and limit tests.
 
 | Language | Judge0 ID |
 |---|---|
-| JavaScript (Node.js 18) | 63 |
-| TypeScript | 63 (via ts-node) |
-| Python 3 | 71 |
-| Java 17 | 62 |
-| C++ (GCC 12) | 54 |
-| Go 1.18 | 60 |
-| Rust 1.68 | 73 |
+| JavaScript (Node.js 18) | 93 |
+| TypeScript 5.0 | 94 |
+| Python 3.11 | 92 |
+| Java 17 | 91 |
+| C++ (GCC 14.1; C++17 flag) | 105 |
+| Go 1.18 | 95 |
+| Rust 1.85 | 108 |
+
+This list does not claim C++20 support. No language is considered integration-tested until the
+isolated Judge0 instance passes the language-specific test matrix.
 
 ## Maintaining
 

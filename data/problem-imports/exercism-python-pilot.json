@@ -1,0 +1,218 @@
+{
+  "schemaVersion": 1,
+  "batchId": "exercism-python-mit-pilot-2026-11",
+  "problems": [
+    {
+      "id": "exercism-python-isogram",
+      "title": "Isogram",
+      "difficulty": "Easy",
+      "category": "Strings",
+      "points": 50,
+      "estimatedTime": 15,
+      "topics": ["Strings", "Hashing"],
+      "description": "Determine whether a word or phrase is an isogram: no letter repeats. Ignore spaces and hyphens, and treat uppercase and lowercase letters as the same.",
+      "constraints": [],
+      "examples": [
+        { "input": "phrase = \"isogram\"", "output": "true" },
+        { "input": "phrase = \"eleven\"", "output": "false" }
+      ],
+      "hints": [],
+      "editorial": "",
+      "starterCode": {
+        "python": "def is_isogram(phrase):\n    # Return whether each letter appears at most once.\n    pass"
+      },
+      "timeLimitMs": 2000,
+      "memoryLimitKb": 256000,
+      "testCases": [
+        { "input": "phrase = \"\"", "expected": "true", "isHidden": false },
+        { "input": "phrase = \"isogram\"", "expected": "true", "isHidden": false },
+        { "input": "phrase = \"eleven\"", "expected": "false", "isHidden": false },
+        { "input": "phrase = \"Alphabet\"", "expected": "false", "isHidden": true },
+        { "input": "phrase = \"six-year-old\"", "expected": "true", "isHidden": true }
+      ],
+      "sources": [
+        {
+          "sourceId": "exercism-python:isogram:instructions",
+          "provider": "Exercism",
+          "repository": "exercism/python",
+          "path": "exercises/practice/isogram/.docs/instructions.md",
+          "revision": "6105f6d9d3ef66ce3d5c8f529d2882af3d76b706",
+          "url": "https://github.com/exercism/python/blob/6105f6d9d3ef66ce3d5c8f529d2882af3d76b706/exercises/practice/isogram/.docs/instructions.md",
+          "attribution": "Exercism contributors",
+          "license": "MIT",
+          "licenseUrl": "https://github.com/exercism/python/blob/6105f6d9d3ef66ce3d5c8f529d2882af3d76b706/LICENSE"
+        },
+        {
+          "sourceId": "exercism-problem-specifications:isogram:tests",
+          "provider": "Exercism",
+          "repository": "exercism/problem-specifications",
+          "path": "exercises/isogram/canonical-data.json",
+          "revision": "f20ab763931c2f449fe2af8f6244ee318bf7c23a",
+          "url": "https://github.com/exercism/problem-specifications/blob/f20ab763931c2f449fe2af8f6244ee318bf7c23a/exercises/isogram/canonical-data.json",
+          "attribution": "Exercism problem-specifications contributors",
+          "license": "MIT",
+          "licenseUrl": "https://github.com/exercism/problem-specifications/blob/f20ab763931c2f449fe2af8f6244ee318bf7c23a/LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "exercism-python-sum-of-multiples",
+      "title": "Sum of Multiples",
+      "difficulty": "Easy",
+      "category": "Math",
+      "points": 50,
+      "estimatedTime": 20,
+      "topics": ["Math", "Arrays"],
+      "description": "Given a limit and a list of factors, sum the unique positive multiples of those factors that are strictly less than the limit.",
+      "constraints": [],
+      "examples": [
+        { "input": "limit = 10, factors = [3, 5]", "output": "23" },
+        { "input": "limit = 7, factors = [3]", "output": "9" }
+      ],
+      "hints": [],
+      "editorial": "",
+      "starterCode": {
+        "python": "def sum_of_multiples(limit, factors):\n    # Return the sum of unique positive multiples below limit.\n    pass"
+      },
+      "timeLimitMs": 2000,
+      "memoryLimitKb": 256000,
+      "testCases": [
+        { "input": "limit = 1, factors = [3, 5]", "expected": "0", "isHidden": false },
+        { "input": "limit = 4, factors = [3, 5]", "expected": "3", "isHidden": false },
+        { "input": "limit = 100, factors = [3, 5]", "expected": "2318", "isHidden": false },
+        { "input": "limit = 10000, factors = [2, 3, 5, 7, 11]", "expected": "39614537", "isHidden": true },
+        { "input": "limit = 4, factors = [3, 0]", "expected": "3", "isHidden": true }
+      ],
+      "sources": [
+        {
+          "sourceId": "exercism-python:sum-of-multiples:instructions",
+          "provider": "Exercism",
+          "repository": "exercism/python",
+          "path": "exercises/practice/sum-of-multiples/.docs/instructions.md",
+          "revision": "6105f6d9d3ef66ce3d5c8f529d2882af3d76b706",
+          "url": "https://github.com/exercism/python/blob/6105f6d9d3ef66ce3d5c8f529d2882af3d76b706/exercises/practice/sum-of-multiples/.docs/instructions.md",
+          "attribution": "Exercism contributors",
+          "license": "MIT",
+          "licenseUrl": "https://github.com/exercism/python/blob/6105f6d9d3ef66ce3d5c8f529d2882af3d76b706/LICENSE"
+        },
+        {
+          "sourceId": "exercism-problem-specifications:sum-of-multiples:tests",
+          "provider": "Exercism",
+          "repository": "exercism/problem-specifications",
+          "path": "exercises/sum-of-multiples/canonical-data.json",
+          "revision": "f20ab763931c2f449fe2af8f6244ee318bf7c23a",
+          "url": "https://github.com/exercism/problem-specifications/blob/f20ab763931c2f449fe2af8f6244ee318bf7c23a/exercises/sum-of-multiples/canonical-data.json",
+          "attribution": "Exercism problem-specifications contributors",
+          "license": "MIT",
+          "licenseUrl": "https://github.com/exercism/problem-specifications/blob/f20ab763931c2f449fe2af8f6244ee318bf7c23a/LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "exercism-python-leap",
+      "title": "Leap Year",
+      "difficulty": "Easy",
+      "category": "Math",
+      "points": 50,
+      "estimatedTime": 10,
+      "topics": ["Math", "Conditionals"],
+      "description": "Determine whether a year is a leap year. Years divisible by 4 are leap years, except century years not divisible by 400.",
+      "constraints": [],
+      "examples": [
+        { "input": "year = 1996", "output": "true" },
+        { "input": "year = 1900", "output": "false" }
+      ],
+      "hints": [],
+      "editorial": "",
+      "starterCode": {
+        "python": "def leap_year(year):\n    # Return whether year is a leap year.\n    pass"
+      },
+      "timeLimitMs": 2000,
+      "memoryLimitKb": 256000,
+      "testCases": [
+        { "input": "year = 2015", "expected": "false", "isHidden": false },
+        { "input": "year = 1996", "expected": "true", "isHidden": false },
+        { "input": "year = 2100", "expected": "false", "isHidden": false },
+        { "input": "year = 2000", "expected": "true", "isHidden": true },
+        { "input": "year = 1800", "expected": "false", "isHidden": true }
+      ],
+      "sources": [
+        {
+          "sourceId": "exercism-python:leap:instructions",
+          "provider": "Exercism",
+          "repository": "exercism/python",
+          "path": "exercises/practice/leap/.docs/instructions.md",
+          "revision": "6105f6d9d3ef66ce3d5c8f529d2882af3d76b706",
+          "url": "https://github.com/exercism/python/blob/6105f6d9d3ef66ce3d5c8f529d2882af3d76b706/exercises/practice/leap/.docs/instructions.md",
+          "attribution": "Exercism contributors",
+          "license": "MIT",
+          "licenseUrl": "https://github.com/exercism/python/blob/6105f6d9d3ef66ce3d5c8f529d2882af3d76b706/LICENSE"
+        },
+        {
+          "sourceId": "exercism-problem-specifications:leap:tests",
+          "provider": "Exercism",
+          "repository": "exercism/problem-specifications",
+          "path": "exercises/leap/canonical-data.json",
+          "revision": "f20ab763931c2f449fe2af8f6244ee318bf7c23a",
+          "url": "https://github.com/exercism/problem-specifications/blob/f20ab763931c2f449fe2af8f6244ee318bf7c23a/exercises/leap/canonical-data.json",
+          "attribution": "Exercism problem-specifications contributors",
+          "license": "MIT",
+          "licenseUrl": "https://github.com/exercism/problem-specifications/blob/f20ab763931c2f449fe2af8f6244ee318bf7c23a/LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "exercism-python-pangram",
+      "title": "Pangram",
+      "difficulty": "Easy",
+      "category": "Strings",
+      "points": 50,
+      "estimatedTime": 15,
+      "topics": ["Strings", "Hashing"],
+      "description": "Determine whether a sentence contains every letter of the English alphabet at least once, ignoring case.",
+      "constraints": [],
+      "examples": [
+        { "input": "sentence = \"the quick brown fox jumps over the lazy dog\"", "output": "true" },
+        { "input": "sentence = \"\"", "output": "false" }
+      ],
+      "hints": [],
+      "editorial": "",
+      "starterCode": {
+        "python": "def is_pangram(sentence):\n    # Return whether all 26 English letters occur.\n    pass"
+      },
+      "timeLimitMs": 2000,
+      "memoryLimitKb": 256000,
+      "testCases": [
+        { "input": "sentence = \"\"", "expected": "false", "isHidden": false },
+        { "input": "sentence = \"abcdefghijklmnopqrstuvwxyz\"", "expected": "true", "isHidden": false },
+        { "input": "sentence = \"the quick brown fox jumps over the lazy dog\"", "expected": "true", "isHidden": false },
+        { "input": "sentence = \"a quick movement of the enemy will jeopardize five gunboats\"", "expected": "false", "isHidden": true },
+        { "input": "sentence = \"\\\"Five quacking Zephyrs jolt my wax bed.\\\"\"", "expected": "true", "isHidden": true }
+      ],
+      "sources": [
+        {
+          "sourceId": "exercism-python:pangram:instructions",
+          "provider": "Exercism",
+          "repository": "exercism/python",
+          "path": "exercises/practice/pangram/.docs/instructions.md",
+          "revision": "6105f6d9d3ef66ce3d5c8f529d2882af3d76b706",
+          "url": "https://github.com/exercism/python/blob/6105f6d9d3ef66ce3d5c8f529d2882af3d76b706/exercises/practice/pangram/.docs/instructions.md",
+          "attribution": "Exercism contributors",
+          "license": "MIT",
+          "licenseUrl": "https://github.com/exercism/python/blob/6105f6d9d3ef66ce3d5c8f529d2882af3d76b706/LICENSE"
+        },
+        {
+          "sourceId": "exercism-problem-specifications:pangram:tests",
+          "provider": "Exercism",
+          "repository": "exercism/problem-specifications",
+          "path": "exercises/pangram/canonical-data.json",
+          "revision": "f20ab763931c2f449fe2af8f6244ee318bf7c23a",
+          "url": "https://github.com/exercism/problem-specifications/blob/f20ab763931c2f449fe2af8f6244ee318bf7c23a/exercises/pangram/canonical-data.json",
+          "attribution": "Exercism problem-specifications contributors",
+          "license": "MIT",
+          "licenseUrl": "https://github.com/exercism/problem-specifications/blob/f20ab763931c2f449fe2af8f6244ee318bf7c23a/LICENSE"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1385 @@
+{
+  "status": "success",
+  "result": {
+    "indexes": [
+      {
+        "collectionGroup": "auditLogs",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "action",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "timestamp",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "auditLogs",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "performedBy",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "timestamp",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "auditLogs",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "severity",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "timestamp",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "auditLogs",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "targetType",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "timestamp",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "careerListings",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "category",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "postedAt",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "careerListings",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "type",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "postedAt",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "codeShares",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "language",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "createdAt",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "codeShares",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "userId",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "createdAt",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "communityPosts",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "type",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "createdAt",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "communityPosts",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "userId",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "createdAt",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "contests",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "isPublic",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "date",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "ASCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "forum",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "category",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "lastActivity",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "forum",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "userId",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "createdAt",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "friendRequests",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "fromUserId",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "status",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "ASCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "gameRooms",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "status",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "createdAt",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "hackathons",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "difficulty",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "prizePool",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "hackathons",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "status",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "startDate",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "ASCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "invites",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "toUserId",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "status",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "ASCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "leaderboard",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "period",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "rating",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "matchmaking",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "status",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "rated",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "difficulty",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "timeControl",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "preferredLanguage",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "category",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "rating",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "ASCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "matchmaking",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "status",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "rated",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "difficulty",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "timeControl",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "preferredLanguage",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "category",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "region",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "rating",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "ASCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "matchmaking",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "status",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "rated",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "difficulty",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "timeControl",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "preferredLanguage",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "rating",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "ASCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "matchmaking",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "status",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "rated",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "difficulty",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "timeControl",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "preferredLanguage",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "region",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "rating",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "ASCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "matchmaking",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "status",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "rating",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "ASCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "mentorProfiles",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "available",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "rating",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "problems",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "difficulty",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "isPremium",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "isPublished",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "title",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "ASCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "problems",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "difficulty",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "isPublished",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "acceptanceRate",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "problems",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "difficulty",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "isPublished",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "difficultyRating",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "ASCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "problems",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "difficulty",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "isPublished",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "points",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "ASCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "problems",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "difficulty",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "isPublished",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "points",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "problems",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "difficulty",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "isPublished",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "title",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "ASCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "problems",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "difficulty",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "isPublished",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "titleLower",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "ASCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "problems",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "isPremium",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "isPublished",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "title",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "ASCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "problems",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "isPublished",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "acceptanceRate",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "problems",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "isPublished",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "difficulty",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "ASCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "problems",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "isPublished",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "difficultyRating",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "ASCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "problems",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "isPublished",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "points",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "ASCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "problems",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "isPublished",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "points",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "problems",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "isPublished",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "title",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "ASCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "problems",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "isPublished",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "titleLower",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "ASCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "problems",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "topics",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "isPublished",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "acceptanceRate",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "problems",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "topics",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "isPublished",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "difficultyRating",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "ASCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "problems",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "topics",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "isPublished",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "points",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "ASCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "problems",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "topics",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "isPublished",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "points",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "problems",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "topics",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "isPublished",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "title",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "ASCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "problems",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "topics",
+            "arrayConfig": "CONTAINS"
+          },
+          {
+            "fieldPath": "difficulty",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "isPublished",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "titleLower",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "ASCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "problems",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "topics",
+            "arrayConfig": "CONTAINS"
+          },
+          {
+            "fieldPath": "isPublished",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "difficulty",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "ASCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "problems",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "topics",
+            "arrayConfig": "CONTAINS"
+          },
+          {
+            "fieldPath": "isPublished",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "titleLower",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "ASCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "projects",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "userId",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "createdAt",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "publicProfiles",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "isPublic",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "privacySettings.showRating",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "ASCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "publicProfiles",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "isPublic",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "username",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "ASCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "reports",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "reportCount",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "lastReportedAt",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "reports",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "status",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "lastReportedAt",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "reports",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "status",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "reportCount",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "lastReportedAt",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "reports",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "status",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "targetType",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "lastReportedAt",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "reports",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "status",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "targetType",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "reportCount",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "lastReportedAt",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "reports",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "targetType",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "lastReportedAt",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "reports",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "targetType",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "reportCount",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "lastReportedAt",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "studyGroups",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "isPublic",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "createdAt",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "studyGroups",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "topic",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "memberCount",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "submissions",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "problemId",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "submittedAt",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "users",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "privacySettings.showRating",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "rating",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "wins",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      },
+      {
+        "collectionGroup": "users",
+        "queryScope": "COLLECTION",
+        "fields": [
+          {
+            "fieldPath": "privacySettings.showRating",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "wins",
+            "order": "ASCENDING"
+          },
+          {
+            "fieldPath": "rating",
+            "order": "DESCENDING"
+          },
+          {
+            "fieldPath": "__name__",
+            "order": "DESCENDING"
+          }
+        ],
+        "density": "SPARSE_ALL"
+      }
+    ],
+    "fieldOverrides": []
+  }
+}

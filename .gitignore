@@ -69,3 +69,6 @@ public1/
 # stray nested copy of the repo (see root devrann/)
 /devrann/
 -A
+
+# Generated Monaco assets (run npm run monaco:sync)
+public/monaco/

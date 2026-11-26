@@ -1,0 +1,659 @@
+// file: firestore.rules
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidUsername(name) {
+      return name is string && name.size() >= 3 && name.size() <= 20
+        && name.matches('^[a-z0-9._]+$')
+        && !name.matches('^[._]')
+        && !name.matches('[._]$')
+        && !name.matches('.*[._]{2,}.*');
+    }
+
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        getUserRole() == 'admin' || getUserRole() == 'super_admin'
+      );
+    }
+
+    function hasRole(role) {
+      return isAuthenticated() && getUserRole() == role;
+    }
+
+    function isAtLeast(role) {
+      let roles = ['user', 'support', 'moderator', 'admin', 'super_admin'];
+      let userRole = getUserRole();
+      let userIdx = roles.indexOf(userRole);
+      let reqIdx = roles.indexOf(role);
+      return isAuthenticated() && userIdx >= 0 && reqIdx >= 0 && userIdx >= reqIdx;
+    }
+
+    // ===== AUDIT LOGS (immutable, append-only) =====
+    match /auditLogs/{logId} {
+      allow read: if isAtLeast('admin');
+      allow create: if isAuthenticated();
+      allow update, delete: if false;
+    }
+
+    // ===== USERNAMES COLLECTION (server-side writes only via Admin SDK) =====
+    match /usernames/{normalized} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+      allow delete: if false;
+    }
+
+    // ===== PROBLEMS COLLECTION (metadata only, read for all, write for admin/moderator) =====
+    match /problems/{problemId} {
+      allow read: if isAuthenticated();
+      allow write: if isAtLeast('moderator');
+    }
+
+    // ===== PROBLEM CONTENT (public-facing: description, examples, VISIBLE tests only) =====
+    match /problemContent/{problemId} {
+      allow read: if isAuthenticated();
+      allow write: if isAtLeast('moderator');
+    }
+
+    // ===== PROBLEM SECRETS (full test cases incl. hidden expected outputs) =====
+    match /problemSecrets/{problemId} {
+      allow read, write: if false;
+      allow delete: if false;
+    }
+
+    // ===== CHALLENGES (admin managed) =====
+    match /challenges/{challengeId} {
+      allow read: if isAuthenticated();
+      allow write: if isAtLeast('admin');
+    }
+
+    // ===== USERS COLLECTION =====
+    match /users/{userId} {
+      // ELO, XP, stats, roles and ban state are server-managed (Admin SDK only).
+      function userProtectedKeys() {
+        return ['xp', 'rating', 'wins', 'losses', 'draws', 'problemsSolved',
+          'totalSubmissions', 'streakCount', 'coins', 'banned', 'uid', 'email',
+          'publicId', 'role', 'isAdmin', 'createdAt', 'joinedAt'];
+      }
+      function touchesProtectedUserFields() {
+        return request.resource.data.diff(resource.data).affectedKeys()
+          .hasAny(userProtectedKeys());
+      }
+
+      allow read: if isAuthenticated();
+      allow create: if isOwner(userId)
+        && request.resource.data.uid == userId
+        && request.resource.data.publicId is string
+        && request.resource.data.publicId.matches('^u_[a-z0-9]+$')
+        && isValidUsername(request.resource.data.username)
+        && !request.resource.data.keys().hasAny(['role', 'isAdmin', 'banned']);
+      allow update: if (isOwner(userId)
+        && !touchesProtectedUserFields()
+        && (request.resource.data.username == resource.data.username
+            || (request.resource.data.username is string
+                && isValidUsername(request.resource.data.username))))
+        || (isAtLeast('admin')
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'isAdmin', 'updatedAt']))
+        || (isAtLeast('support') && !touchesProtectedUserFields());
+
+      match /combatLogs/{logId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId);
+        allow update, delete: if false;
+      }
+
+      match /gameHistory/{historyId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // ===== ARENA MATCH HISTORY (server-written at battle finalize) =====
+      match /matches/{matchId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      match /friends/{friendId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && request.resource.data.userId == userId
+          && request.resource.data.friendId == friendId
+          && request.resource.data.status in ['pending', 'accepted'];
+        allow update: if isOwner(userId)
+          && request.resource.data.keys().hasOnly(['status', 'updatedAt']);
+        allow delete: if isOwner(userId);
+      }
+
+      match /friendRequests/{reqId} {
+        allow read: if isOwner(userId);
+        allow create: if isAuthenticated()
+          && request.resource.data.fromUserId == request.auth.uid;
+        allow update, delete: if isOwner(userId);
+      }
+
+      match /blocked/{blockedUserId} {
+        allow read: if isOwner(userId);
+        allow create, delete: if isOwner(userId)
+          && blockedUserId == request.resource.data.blockedUserId;
+        allow update: if false;
+      }
+
+      match /notifications/{notifId} {
+        allow read: if isOwner(userId);
+        allow create: if isAuthenticated()
+          && request.resource.data.userId == notifId.split('_')[0]
+          || request.resource.data.userId == userId;
+        allow update: if isOwner(userId)
+          && request.resource.data.keys().hasOnly(['read']);
+        allow delete: if isOwner(userId);
+      }
+
+      // ===== PRACTICE PROGRESS (new schema) — server-written verdicts =====
+      match /progress/{problemId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // ===== PRACTICE PROGRESS (legacy) — server-written verdicts =====
+      match /practiceProgress/{problemId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // ===== SAVED CODE =====
+      match /savedCode/{problemId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId);
+        allow delete: if isOwner(userId);
+      }
+
+      // ===== SUBMISSIONS — server-written, immutable =====
+      match /submissions/{submissionId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // ===== RECENTLY VIEWED =====
+      match /recentlyViewed/{problemId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId);
+        allow delete: if false;
+      }
+
+      // ===== DRAFTS =====
+      match /drafts/{problemId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId);
+        allow delete: if isOwner(userId);
+      }
+
+      // ===== DAILY CHALLENGE PROGRESS =====
+      match /challenges/{challengeId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId);
+        allow delete: if false;
+      }
+
+      // ===== ARENA SETTINGS =====
+      match /arenaSettings/{settingId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && (!('userId' in request.resource.data) || request.resource.data.userId == request.auth.uid);
+        allow delete: if isOwner(userId);
+      }
+
+      // ===== AI USAGE QUOTA (per-feature docs) =====
+      match /aiUsage/{feature} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && request.resource.data.keys().hasAll(['count', 'period', 'resetAt'])
+          && request.resource.data.count is number
+          && request.resource.data.count >= 0
+          && request.resource.data.period is string;
+        allow update: if isOwner(userId)
+          && resource.data.period == request.resource.data.period
+          && request.resource.data.count == resource.data.count + 1
+          && request.resource.data.keys().hasOnly(['count', 'period', 'resetAt', 'lastUsedAt']);
+        allow delete: if false;
+      }
+
+      // ===== DAILY MISSIONS =====
+      match /dailyMissions/{missionId} {
+        allow read, write: if isOwner(userId);
+        allow delete: if false;
+      }
+
+      // ===== INVENTORY =====
+      match /inventory/{itemType} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // ===== PROJECTS =====
+      match /projects/{projectId} {
+        allow read: if isAuthenticated();
+        allow create: if isOwner(userId)
+          && request.resource.data.userId == request.auth.uid;
+        allow update: if isOwner(userId);
+        allow delete: if isOwner(userId);
+      }
+
+      // ===== GITHUB INTEGRATION =====
+      match /github/{integrationId} {
+        allow read, write: if isOwner(userId);
+        allow delete: if isOwner(userId);
+      }
+
+      // ===== STUDY GROUPS =====
+      match /studyGroups/{groupId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated()
+          && request.resource.data.createdBy == request.auth.uid;
+        allow update: if isAuthenticated()
+          && request.auth.uid in resource.data.adminIds;
+        allow delete: if isAuthenticated()
+          && request.auth.uid == resource.data.createdBy;
+
+        match /messages/{messageId} {
+          allow read: if isAuthenticated();
+          allow create: if isAuthenticated()
+            && request.resource.data.userId == request.auth.uid;
+        }
+      }
+
+      // ===== MENTOR PROFILES =====
+      match /mentorProfiles/{profileId} {
+        allow read: if isAuthenticated();
+        allow create, update: if isOwner(profileId);
+        allow delete: if false;
+
+        match /reviews/{reviewId} {
+          allow read: if isAuthenticated();
+          allow create: if isAuthenticated()
+            && request.resource.data.userId == request.auth.uid;
+        }
+      }
+
+      // ===== CODE SHARES =====
+      match /codeShares/{shareId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated()
+          && request.resource.data.userId == request.auth.uid;
+        allow update: if isOwner(request.resource.data.userId);
+        allow delete: if isOwner(request.resource.data.userId);
+      }
+    }
+
+    // ===== COMMUNITY POSTS =====
+    match /communityPosts/{postId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated()
+        && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated()
+        && (request.resource.data.userId == request.auth.uid
+            || isAtLeast('moderator'))
+        && request.resource.data.keys().hasAll(['title', 'content', 'type', 'tags', 'updatedAt']);
+      allow delete: if isAuthenticated()
+        && (request.resource.data.userId == request.auth.uid
+            || isAtLeast('moderator'));
+
+      match /comments/{commentId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated()
+          && request.resource.data.userId == request.auth.uid;
+        allow update, delete: if isOwner(request.resource.data.userId)
+          || isAtLeast('moderator');
+      }
+    }
+
+    // ===== HACKATHONS =====
+    match /hackathons/{hackathonId} {
+      allow read: if isAuthenticated();
+      allow create: if isAtLeast('admin');
+      allow update, delete: if isAtLeast('admin');
+
+      match /teams/{teamId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated()
+          && request.resource.data.leaderId == request.auth.uid;
+        allow update: if isAuthenticated()
+          && request.auth.uid == resource.data.leaderId;
+      }
+    }
+
+    // ===== CAREER LISTINGS =====
+    match /careerListings/{listingId} {
+      allow read: if isAuthenticated();
+      allow create: if isAtLeast('admin');
+      allow update, delete: if isAtLeast('admin');
+
+      match /applications/{applicationId} {
+        allow read: if isOwner(request.resource.data.userId);
+        allow create: if isAuthenticated()
+          && request.resource.data.userId == request.auth.uid;
+      }
+    }
+
+    // ===== COMPANY PREP =====
+    match /companyPrep/{companyId} {
+      allow read: if isAuthenticated();
+      allow write: if isAtLeast('admin');
+    }
+
+    // ===== DISCUSSION FORUM =====
+    match /forum/{threadId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated()
+        && request.resource.data.userId == request.auth.uid;
+      allow update: if isOwner(request.resource.data.userId);
+      allow delete: if isAuthenticated()
+        && (request.auth.uid == resource.data.userId || isAtLeast('moderator'));
+
+      match /replies/{replyId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated()
+          && request.resource.data.userId == request.auth.uid;
+        allow update: if isOwner(request.resource.data.userId);
+      }
+    }
+
+    // ===== REPORTS =====
+    match /reports/{reportId} {
+      allow read: if isAtLeast('moderator');
+      allow create: if isAuthenticated()
+        && request.resource.data.targetType in ['user', 'post', 'comment', 'code']
+        && request.resource.data.targetId is string
+        && request.resource.data.reason is string
+        && request.resource.data.reporterId == request.auth.uid
+        && request.resource.data.status == 'pending';
+      allow update: if isAtLeast('moderator');
+      allow delete: if false;
+    }
+
+    // ===== SHOP =====
+    match /shop/{itemId} {
+      allow read: if isAuthenticated();
+      allow write: if isAtLeast('admin');
+    }
+
+    // ===== CONTEST CALENDAR =====
+    match /contestCalendar/{contestId} {
+      allow read: if isAuthenticated();
+      allow write: if isAtLeast('admin');
+    }
+
+    // ===== DAILY FEED =====
+    match /dailyFeed/{entryId} {
+      allow read: if isAuthenticated();
+      allow write: if isAtLeast('admin');
+    }
+
+    // ===== LEARNING PROGRESS =====
+    match /learning/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // ===== ROOMS =====
+    match /gameRooms/{roomId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated()
+        && request.resource.data.hostId == request.auth.uid
+        && request.resource.data.roomCode is string
+        && request.resource.data.roomCode.size() == 6
+        && request.resource.data.status == 'waiting';
+      allow update: if isAuthenticated()
+        && (
+          request.auth.uid == resource.data.hostId
+          || (resource.data.status == 'waiting'
+              && request.auth.uid in request.resource.data.players)
+        );
+      allow delete: if isAuthenticated()
+        && request.auth.uid == resource.data.hostId;
+    }
+
+    // ===== BATTLES =====
+    match /battles/{battleId} {
+      function isBattlePlayer() {
+        return request.auth.uid in resource.data.participants;
+      }
+
+      allow get, list: if isBattlePlayer();
+
+      function changedKeys() {
+        return request.resource.data.diff(resource.data).affectedKeys();
+      }
+
+      function ownPlayerKey() {
+        return resource.data.player1.userId == request.auth.uid
+          ? 'player1'
+          : 'player2';
+      }
+
+      // - countdown -> coding transition (idempotent, both players race it)
+      // - own player's live code/language only
+      // Finalization, scores and results are server-side (Admin SDK) only.
+      allow update: if isBattlePlayer() && (
+        (
+          changedKeys().hasOnly(['phase', 'status', 'codingStartedAt', 'updatedAt'])
+          && resource.data.phase == 'countdown'
+          && request.resource.data.phase == 'coding'
+          && request.resource.data.status == 'active'
+          && request.resource.data.codingStartedAt == request.time
+        )
+        || changedKeys().hasOnly([
+          ownPlayerKey() + '.code',
+          ownPlayerKey() + '.language',
+          'updatedAt',
+        ])
+      );
+
+      allow create: if false;
+      allow delete: if false;
+    }
+
+    // ===== ROOM INVITES (client-side battle invites) =====
+    match /invites/{inviteId} {
+      allow read: if isAuthenticated()
+        && (request.auth.uid == resource.data.fromUserId
+            || request.auth.uid == resource.data.toUserId);
+      allow create: if isAuthenticated()
+        && request.resource.data.fromUserId == request.auth.uid;
+      allow update, delete: if isAuthenticated()
+        && request.auth.uid == resource.data.toUserId
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'updatedAt']);
+    }
+    match /matchmaking/{docId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(docId)
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status in ['waiting', 'searching'];
+      allow update: if isOwner(docId);
+      allow delete: if isOwner(docId);
+    }
+
+    // ===== ROOM INVITES =====
+    match /invites/{inviteId} {
+      allow read: if isAuthenticated()
+        && (resource.data.toUserId == request.auth.uid
+            || resource.data.fromUserId == request.auth.uid);
+      allow create: if isAuthenticated()
+        && request.resource.data.fromUserId == request.auth.uid
+        && request.resource.data.toUserId is string
+        && request.resource.data.toUserId != request.auth.uid
+        && request.resource.data.roomId is string
+        && request.resource.data.status == 'pending';
+      // Recipient accepts/declines; sender may cancel.
+      allow update: if isAuthenticated()
+        && (resource.data.toUserId == request.auth.uid
+            || resource.data.fromUserId == request.auth.uid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
+        && request.resource.data.status in ['pending', 'accepted', 'declined', 'cancelled'];
+      allow delete: if isAuthenticated()
+        && resource.data.fromUserId == request.auth.uid;
+    }
+
+    // ===== LEADERBOARD =====
+    match /leaderboard/{docId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated()
+        && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated()
+        && request.resource.data.userId == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // ===== MATCHES (immutable records) =====
+    match /matches/{matchId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated()
+        && request.resource.data.players is list
+        && request.resource.data.players.size() >= 2;
+      allow update, delete: if false;
+    }
+
+    // ===== CONTESTS (admin-curated contest calendar entries) =====
+    match /contests/{contestId} {
+      allow read: if isAuthenticated();
+      allow write: if isAtLeast('admin');
+      allow delete: if isAtLeast('admin');
+    }
+
+    // ===== FORUM THREADS (top-level forum collection) =====
+    match /forumThreads/{threadId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated()
+        && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated()
+        && (request.resource.data.userId == request.auth.uid || isAtLeast('moderator'));
+      allow delete: if isAuthenticated()
+        && (request.auth.uid == resource.data.userId || isAtLeast('moderator'));
+
+      match /replies/{replyId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated()
+          && request.resource.data.userId == request.auth.uid;
+        allow update, delete: if isAuthenticated()
+          && (request.auth.uid == resource.data.userId || isAtLeast('moderator'));
+      }
+    }
+
+    // ===== STUDY GROUPS (top-level; admin list/create also via server API) =====
+    match /studyGroups/{groupId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated()
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update: if isAuthenticated()
+        && request.auth.uid in resource.data.adminIds;
+      allow delete: if isAuthenticated()
+        && request.auth.uid == resource.data.createdBy;
+
+      match /messages/{messageId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated()
+          && request.resource.data.userId == request.auth.uid;
+        allow update, delete: if false;
+      }
+    }
+
+    // ===== MENTOR PROFILES (top-level) =====
+    match /mentorProfiles/{profileId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated()
+        && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.userId == request.auth.uid;
+      allow delete: if false;
+
+      match /reviews/{reviewId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated()
+          && request.resource.data.userId == request.auth.uid;
+        allow update, delete: if false;
+      }
+    }
+
+    // ===== ACTIVITY (public social feed + per-user subcollection) =====
+    match /activity/{activityId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated()
+        && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // ===== FEED (curated posts; admin-managed) =====
+    match /feed/{entryId} {
+      allow read: if isAuthenticated();
+      allow write: if isAtLeast('admin');
+    }
+
+    // ===== HACKATHON TEAMS (top-level) =====
+    match /hackathonTeams/{teamId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated()
+        && request.resource.data.leaderId == request.auth.uid;
+      allow update: if isAuthenticated()
+        && resource.data.leaderId == request.auth.uid;
+      allow delete: if isAuthenticated()
+        && resource.data.leaderId == request.auth.uid;
+    }
+
+    // ===== REFERRALS =====
+    match /referrals/{code} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated()
+        && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // ===== CHATS (1:1 chatId = uidA_uidB sorted; subcollection messages) =====
+    match /chats/{chatId} {
+      allow read: if isAuthenticated()
+        && request.auth.uid in resource.data.participants;
+      allow create: if isAuthenticated()
+        && (chatId.split('_')[0] == request.auth.uid || chatId.split('_')[1] == request.auth.uid)
+        && request.auth.uid in request.resource.data.participants;
+      allow update: if isAuthenticated()
+        && request.auth.uid in resource.data.participants;
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if isAuthenticated()
+          && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+        allow create: if isAuthenticated()
+          && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
+          && request.resource.data.senderId == request.auth.uid;
+        allow update, delete: if isAuthenticated()
+          && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
+          && (resource.data.senderId == request.auth.uid
+              || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy']));
+      }
+    }
+
+    // ===== CONFIG COLLECTION (admin-managed platform settings) =====
+    match /config/{docId} {
+      allow read: if isAtLeast('admin');
+      allow write: if isAtLeast('admin');
+      allow delete: if false;
+    }
+
+    // ===== SYSTEM LOGS (server-side, append-only) =====
+    match /systemLogs/{logId} {
+      allow read: if isAtLeast('admin');
+      allow create: if isAuthenticated();
+      allow update, delete: if false;
+    }
+  }
+}

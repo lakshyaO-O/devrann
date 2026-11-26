@@ -17,33 +17,34 @@ DevRann is a Next.js 15.5.9 (App Router) competitive coding platform with Fireba
 - 26 custom hooks
 - ~100+ React components
 - 58 Firestore composite indexes defined
-- 4 `.env` files with secrets committed to the repository
+- Credential values were present in the tracked audit report and a historical `.env.vercel.pulled` file
 
 **Critical issues found:**
-1. **Secrets committed to git** — Firebase API keys, Gemini API key, Vercel OIDC tokens in `.env.local`, `.env.production`, and `.env.vercel`
+1. **Credentials exposed in tracked documentation** — Firebase web API key, Google Gemini API key, and Vercel OIDC deployment token values appeared in an earlier version of this report
 2. **Session cookie `httpOnly: false`** — Accessible to JavaScript, stealable via XSS
 3. **Client-side admin Firestore reads** — Any authenticated user can read admin data from the browser console
-4. **No rate limiting on 12 AI routes** — Unrestricted Gemini API abuse potential
+4. **AI rate limiting was missing** — P0 now adds shared Firestore limits to AI routes in the working tree; this is not deployed
 5. **GitHub OAuth tokens stored in plaintext** in Firestore
 6. **Battle system trusts client-side logic** for matchmaking, scoring, and problem selection
 7. **~60+ unused TypeScript type exports**, ~40+ unused service functions, 9 unused hooks
-8. **Firebase Admin SDK private key exposed** in `.env.local` committed to git
+8. **Firebase Admin service-account fields referenced in documentation** — the report contained field names, but no populated private-key value
 
 ---
 
 ## B. Critical Security Issues
 
-### B1. Secrets and API Keys Committed to Git
+### B1. Credentials exposed in tracked documentation
 
-**Files:** `.env.local`, `.env.production`, `.env.vercel`  
-**Evidence:** These files contain live credentials in the repository:
-- `GEMINI_API_KEY=AQ.Ab8RN6K0xE3O7_jFz7GE8pMJEDUlu2GXuRcbzzjGHkYIPOflZg`
-- `NEXT_PUBLIC_FIREBASE_API_KEY=AIzaSyAZF5e8O8zQMswjwyE6EfCWjrhnYpP-nfI`
-- `VERCEL_OIDC_TOKEN=eyJ...` (JWT token for Vercel deployment)
-- `FIREBASE_CLIENT_EMAIL` and `FIREBASE_PRIVATE_KEY` listed in `.env.example` (expected to be populated)
-- **Impact:** Anyone with repo access can use the Gemini API key, Firebase project credentials, and Vercel deployment tokens. The Vercel OIDC token allows authenticating as the project's Vercel environment.
+**Finding:** The tracked audit report included credential values for a Google Gemini API key, a Firebase web API key, and a Vercel OIDC deployment token. Reachable history also contains a Vercel OIDC token in `.env.vercel.pulled`. The report named Firebase service-account fields, but `.env.example` contains placeholders rather than populated credentials.
 
-**Recommended fix:** Rotate ALL exposed keys immediately. Add ALL `.env*` files to `.gitignore` (not just `.env` and `.env.local` — `.env.production` and `.env.vercel` are missing). Use Vercel Environment Variables for production secrets.
+**Remediation:** Credential values have been removed from this working copy. The prior report version is present in reachable Git history (including commit `ab476ae`), and `.env.vercel.pulled` appears in commit `284badb`. No `.env.local`, `.env.production`, or exact `.env.vercel` path appears in reachable history. After credential rotation, the owner can authorize a coordinated history rewrite with `git filter-repo` or BFG, followed by a force-push and cleanup of forks, clones, caches, and release artifacts. Rewriting history is not a substitute for revocation.
+
+**Owner rotation checklist:**
+1. Revoke and replace the Google Gemini API key; inspect usage and restrict its allowed services.
+2. Rotate the Firebase web API key if its provider configuration permits, and review Firebase API restrictions, authorized domains, and project usage. Treat it as public client configuration only if Firebase restrictions confirm that use is intended.
+3. Revoke the exposed Vercel OIDC/deployment credential and review deployment audit logs and trusted integrations.
+4. If any Firebase Admin service-account private key was ever exposed, disable that key, create a replacement through the approved owner workflow, update secret storage, and verify service health.
+5. Search current files, branches, CI logs, artifacts, and Git history for copies; do not rely on history rewriting instead of revocation.
 
 ### B2. Session Cookie `httpOnly: false`
 
@@ -79,12 +80,14 @@ await db.collection('users').doc(uid).collection('github').doc('integration').se
 
 **Impact:** Any admin with `users.read` permission can read users' GitHub access tokens. These tokens grant access to private repositories and GitHub account actions.
 
-### B5. No Rate Limiting on AI Routes
+### B5. Missing Rate Limiting on AI Routes (P0 Remediated Locally)
 
 **Files:** All 12 routes under `src/app/api/ai/`  
-**Evidence:** None of the AI routes (`chat`, `code-review`, `mentor`, `mentor-v2`, `debugger`, `complexity-analyzer`, `interviewer`, `roadmap`, `revision-generator`, `resume-review`, `mistake-predictor`, `feed`) implement any rate limiting. They all authenticate via `verifyAuth()` but have no request frequency controls.
+**Original issue:** The AI routes authenticated users but did not enforce shared request-frequency controls.
 
-**Impact:** An authenticated user can spam the Gemini API without restriction, generating unlimited costs on the Gemini API billing.
+**Fix:** The working tree now applies Firestore-backed, transactional limits and fails closed with a distinct service-unavailable response when the shared limiter cannot operate. No production deployment has occurred. Firebase Auth SDK sign-in/sign-up abuse controls remain managed by Firebase.
+
+**Remaining dependency:** Firebase Auth SDK sign-in/sign-up abuse controls are managed by Firebase; they are not covered by the authenticated-user limiter.
 
 ---
 
@@ -287,7 +290,7 @@ The `testCases` variable is assigned but never used. The fake test case `[{ inpu
 ### H5. In-memory Rate Limiting Doesn't Scale (MEDIUM)
 
 **File:** `src/lib/rate-limit.ts`  
-**Issue:** The `checkRateLimit()` function uses an in-memory `Map`. This is lost on server restart and doesn't work across multiple instances. On Vercel's serverless infrastructure, each invocation is a separate container, making this effectively useless. Only the Firestore-based `checkRateLimitFirestore` works in production.
+**Issue:** The legacy `checkRateLimit()` function still uses an in-memory `Map` for other endpoints and is not a production safeguard. Sensitive judge, AI, authentication, and chat endpoints use the Firestore-backed shared limiter in the working tree; deployment remains pending authorization.
 
 ---
 
@@ -399,7 +402,7 @@ Applying the active Ponytail full-mode ruleset (YAGNI -> reuse -> stdlib -> nati
 |---------|-------------------------|
 | `/admin/setup` page with API endpoint | First-user-as-super_admin pattern. A simpler approach: seed the first admin via Firebase Console or a deployment script. |
 | Full `services/admin.ts` with client-side reads | Every admin function reads directly from Firestore client-side. The server-side admin API routes exist but the client bypasses them. |
-| `useDailyLogin` with 7-day reward calendar | Streak tracking, daily rewards, and claim logic — all client-side with Firestore writes. A user could manipulate their system clock to claim rewards early. |
+| `useDailyLogin` with 7-day reward calendar | Previously client-authoritative; daily rewards and streak claims now use a server transaction in the working tree, not deployed. |
 | `useShop` with full inventory/purchase/earnings system | Client-side purchase logic with server-side verification only on the purchase API. Inventory state is managed client-side and can be manipulated. |
 
 ---
@@ -535,11 +538,11 @@ All types from `src/types/hub.ts` are unused.
 | ID | Issue | Effort | Risk of Fix |
 |----|-------|--------|-------------|
 | B1 | Rotate exposed API keys (Gemini, Firebase, Vercel OIDC) | 1 hour | Low — revoke and regenerate keys |
-| B1 | Add `.env.*` to `.gitignore` (`.env.production`, `.env.vercel`) | 5 min | None |
+| B1 | Verify environment files remain excluded by `.gitignore` | 5 min | None |
 | B2 | Set `httpOnly: true` on all `__session` cookie writes | 30 min | Low — test login flow after |
 | B3 | Move admin Firestore reads to server-side API routes | 4 hours | Medium — admin UI will break until migration complete |
 | B4 | Encrypt GitHub OAuth tokens or store in secure vault | 2 hours | Low — affects only new OAuth flows |
-| B5 | Add rate limiting to all 12 AI routes | 2 hours | Low — set reasonable limits (e.g., 30 req/min per user) |
+| B5 | Deploy the shared AI rate limits after owner approval | Pending | Requires deployment authorization |
 
 ### PHASE 2 — Fix Before Production (High Impact)
 
