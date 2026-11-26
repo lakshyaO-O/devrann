@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminAuth, getAdminFirestore } from '@/firebase/admin';
-import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limit';
+import { enforceSharedRateLimit } from '@/lib/rate-limit';
 
 const privacyKeys = [
   'showRating', 'showStats', 'showActivity', 'showAchievements', 'showFriends',
@@ -42,8 +42,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
   }
 
-  const rate = checkRateLimit(uid, request, { windowMs: 60_000, maxRequests: 20 });
-  if (!rate.allowed) return rateLimitResponse(rate.retryAfterMs);
+  const limited = await enforceSharedRateLimit(uid, 'auth.profile-privacy', { windowMs: 60_000, maxRequests: 20 });
+  if (limited) return limited;
 
   const body = await request.json().catch(() => null);
   if (!isRecord(body)) return NextResponse.json({ error: 'Invalid privacy settings.' }, { status: 400 });

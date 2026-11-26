@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getAdminAuth, getAdminFirestore } from '@/firebase/admin';
-import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limit';
+import { enforceSharedRateLimit } from '@/lib/rate-limit';
 import { hasAcceptedSubmissionForProblemOnDay } from '@/lib/daily-missions';
 
 const MAX_DAILY_XP_BONUS = 1000;
@@ -19,8 +19,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
   }
 
-  const rate = checkRateLimit(uid, request, { windowMs: 60_000, maxRequests: 10 });
-  if (!rate.allowed) return rateLimitResponse(rate.retryAfterMs);
+  const limited = await enforceSharedRateLimit(uid, 'challenges.claim', { windowMs: 60_000, maxRequests: 10 });
+  if (limited) return limited;
 
   try {
     const today = new Date().toISOString().slice(0, 10);
@@ -28,8 +28,9 @@ export async function POST(request: NextRequest) {
     const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
     const db = getAdminFirestore();
     const userRef = db.collection('users').doc(uid);
+    const learningRef = db.collection('learning').doc(uid);
     const challengeRef = db.collection('challenges').doc('daily');
-    const progressRef = userRef.collection('progress');
+    const submissionsRef = userRef.collection('submissions');
     const dailyProgressRef = userRef.collection('challenges').doc('daily');
     const claimRef = dailyProgressRef.collection('claims').doc(today);
 
@@ -45,7 +46,7 @@ export async function POST(request: NextRequest) {
       }
 
       const [todaySubmissions, claimSnap, userSnap] = await Promise.all([
-        tx.get(progressRef
+        tx.get(submissionsRef
           .where('submittedAt', '>=', Timestamp.fromDate(dayStart))
           .where('submittedAt', '<', Timestamp.fromDate(dayEnd))),
         tx.get(claimRef),
@@ -86,6 +87,10 @@ export async function POST(request: NextRequest) {
         xp: FieldValue.increment(challenge.xpBonus),
         updatedAt: FieldValue.serverTimestamp(),
       });
+      tx.set(learningRef, {
+        xp: FieldValue.increment(challenge.xpBonus),
+        lastSynced: FieldValue.serverTimestamp(),
+      }, { merge: true });
       return { alreadyClaimed: false, xpAwarded: challenge.xpBonus } as const;
     });
 

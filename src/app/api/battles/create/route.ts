@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminAuth, getAdminFirestore } from '@/firebase/admin';
-import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limit';
+import { enforceSharedRateLimit } from '@/lib/rate-limit';
 import { FieldValue } from 'firebase-admin/firestore';
 
 class TransactionAbortError extends Error {
@@ -26,8 +26,8 @@ export async function POST(request: NextRequest) {
     }
 
     const uid = decodedToken.uid;
-    const rateCheck = checkRateLimit(uid, request);
-    if (!rateCheck.allowed) return rateLimitResponse(rateCheck.retryAfterMs);
+    const limited = await enforceSharedRateLimit(uid, 'battles.create', { windowMs: 60_000, maxRequests: 10 });
+    if (limited) return limited;
 
     const db = getAdminFirestore();
 
@@ -99,13 +99,10 @@ export async function POST(request: NextRequest) {
     const allTestCases: Array<{ input: string; expected: string; isHidden?: boolean }> =
       problemContent.testCases || [];
     const visibleTests = allTestCases
-      .filter((tc) => !tc.isHidden)
+      .filter((tc) => tc.isHidden === false)
       .map((tc) => ({ input: String(tc.input ?? ''), expected: String(tc.expected ?? '') }));
-    if (visibleTests.length === 0 && allTestCases.length > 0) {
-      visibleTests.push({
-        input: String(allTestCases[0].input ?? ''),
-        expected: String(allTestCases[0].expected ?? ''),
-      });
+    if (visibleTests.length === 0) {
+      return NextResponse.json({ error: 'Public battle examples are not configured for this problem.' }, { status: 503 });
     }
 
     const problemForBattle = {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getAdminAuth, getAdminFirestore } from '@/firebase/admin';
-import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limit';
+import { enforceSharedRateLimit } from '@/lib/rate-limit';
 import { countVerifiedMissionProgress } from '@/lib/daily-missions';
 
 const MISSION_TEMPLATES = [
@@ -73,8 +73,11 @@ export async function GET(request: NextRequest) {
     const identity = await authenticate(request);
     if (!identity) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const rateLimit = checkRateLimit(identity.uid, request);
-    if (!rateLimit.allowed) return rateLimitResponse(rateLimit.retryAfterMs);
+    const limited = await enforceSharedRateLimit(identity.uid, 'missions.daily.read', {
+      windowMs: 60_000,
+      maxRequests: 60,
+    });
+    if (limited) return limited;
 
     const db = getAdminFirestore();
     const userRef = db.collection('users').doc(identity.uid);
@@ -117,8 +120,11 @@ export async function POST(request: NextRequest) {
     const identity = await authenticate(request);
     if (!identity) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const rateLimit = checkRateLimit(identity.uid, request);
-    if (!rateLimit.allowed) return rateLimitResponse(rateLimit.retryAfterMs);
+    const limited = await enforceSharedRateLimit(identity.uid, 'missions.daily.claim', {
+      windowMs: 60_000,
+      maxRequests: 10,
+    });
+    if (limited) return limited;
 
     const body = await request.json().catch(() => null);
     if (!body || typeof body.missionId !== 'string') {
@@ -137,6 +143,7 @@ export async function POST(request: NextRequest) {
     const db = getAdminFirestore();
     const missionRef = db.collection('users').doc(identity.uid).collection('missions').doc(body.missionId);
     const userRef = db.collection('users').doc(identity.uid);
+    const learningRef = db.collection('learning').doc(identity.uid);
     const result = await db.runTransaction(async (transaction) => {
       const [missionSnapshot, userSnapshot] = await Promise.all([
         transaction.get(missionRef),
@@ -151,6 +158,11 @@ export async function POST(request: NextRequest) {
         coins: FieldValue.increment(template.coinReward),
         updatedAt: FieldValue.serverTimestamp(),
       });
+      transaction.set(learningRef, {
+        xp: FieldValue.increment(template.xpReward),
+        coins: FieldValue.increment(template.coinReward),
+        lastSynced: FieldValue.serverTimestamp(),
+      }, { merge: true });
       return 'claimed' as const;
     });
 

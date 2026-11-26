@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
     const db = getAdminFirestore();
 
     // Health checks (Piston falls back to the public API, same as the engine)
-    const pistonUrl = process.env.PISTON_API_URL || 'https://emkc.org/api/v2/piston/execute';
+    const pistonUrl = process.env.PISTON_API_URL || '';
     const judge0Url = process.env.JUDGE0_API_URL;
     const [pistonHealth, judge0Health] = await Promise.all([
       checkBackend(pistonUrl, 'Piston'),

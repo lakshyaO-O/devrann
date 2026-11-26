@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminAuth, getAdminFirestore } from '@/firebase/admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { executeBattleCode } from '@/services/judge-engine';
-import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limit';
+import { enforceSharedRateLimit } from '@/lib/rate-limit';
 import { calculateElo } from '@/lib/utils';
 
 const ALLOWED_LANGUAGES = ['javascript', 'typescript', 'python', 'java', 'cpp', 'go', 'rust'];
@@ -41,8 +41,8 @@ export async function POST(request: NextRequest) {
     }
 
     const uid = decodedToken.uid;
-    const rateCheck = checkRateLimit(uid, request);
-    if (!rateCheck.allowed) return rateLimitResponse(rateCheck.retryAfterMs);
+    const limited = await enforceSharedRateLimit(uid, 'battles.submit', { windowMs: 60_000, maxRequests: 10 });
+    if (limited) return limited;
 
     const body = await request.json();
     const { battleId, code } = body;
@@ -337,6 +337,9 @@ export async function POST(request: NextRequest) {
     });
   } catch (err: any) {
     console.error('[Battle Submit] Error:', err);
+    if (err?.name === 'ExecutionBackendUnavailableError') {
+      return NextResponse.json({ error: err.message, code: 'JUDGE_UNAVAILABLE' }, { status: 503 });
+    }
     return NextResponse.json({ error: err?.message || 'Internal server error' }, { status: 500 });
   }
 }

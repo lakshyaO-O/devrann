@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminAuth, getAdminFirestore } from '@/firebase/admin';
 import { FieldValue } from 'firebase-admin/firestore';
-import { executeTestCases, isLanguageSupported } from '@/services/judge-engine';
-import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limit';
+import {
+  executeTestCases,
+  ExecutionBackendInternalError,
+  ExecutionBackendUnavailableError,
+  isLanguageSupported,
+} from '@/services/judge-engine';
+import { enforceSharedRateLimit } from '@/lib/rate-limit';
+import { getProblemSubmissionXp } from '@/lib/problem-rewards';
 import type { CodingLanguage, Verdict } from '@/types';
 
-const ALLOWED_LANGUAGES: CodingLanguage[] = ['javascript', 'typescript', 'python', 'java', 'cpp', 'go', 'rust'];
 const MAX_CODE_LENGTH = 100000;
 
 export async function POST(request: NextRequest) {
@@ -24,17 +29,21 @@ export async function POST(request: NextRequest) {
     }
 
     const uid = decodedToken.uid;
-    const rateCheck = checkRateLimit(uid, request, { windowMs: 60_000, maxRequests: 12 });
-    if (!rateCheck.allowed) return rateLimitResponse(rateCheck.retryAfterMs);
+    const rateLimit = await enforceSharedRateLimit(uid, 'judge.practice', { windowMs: 60_000, maxRequests: 12 });
+    if (rateLimit) return rateLimit;
 
     const body = await request.json();
     const problemId = body?.problemId;
-    const language: CodingLanguage = ALLOWED_LANGUAGES.includes(body?.language) ? body.language : 'python';
+    const languageValue = body?.language;
     const code = body?.code;
 
     if (!problemId || typeof problemId !== 'string') {
       return NextResponse.json({ error: 'Missing problemId' }, { status: 400 });
     }
+    if (!isLanguageSupported(languageValue)) {
+      return NextResponse.json({ error: 'Unsupported or missing language' }, { status: 400 });
+    }
+    const language = languageValue;
     if (typeof code !== 'string' || code.length === 0) {
       return NextResponse.json({ error: 'Missing code' }, { status: 400 });
     }
@@ -86,6 +95,7 @@ export async function POST(request: NextRequest) {
 
     // ---- Server-side verdict + stats (Admin SDK; not spoofable by clients) ----
     const submissionRef = db.collection('users').doc(uid).collection('submissions').doc();
+    const learningRef = db.collection('learning').doc(uid);
     const submissionData = {
       userId: uid, problemId, language, code,
       verdict, passedTestCases, totalTestCases,
@@ -98,14 +108,16 @@ export async function POST(request: NextRequest) {
     await submissionRef.set(submissionData);
 
     const result = await db.runTransaction(async (tx) => {
-      const [ppSnap, progSnap, userSnapTx] = await Promise.all([
+      const [ppSnap, progSnap, userSnapTx, learningSnap] = await Promise.all([
         tx.get(db.collection('users').doc(uid).collection('practiceProgress').doc(problemId)),
         tx.get(db.collection('users').doc(uid).collection('progress').doc(problemId)),
         tx.get(db.collection('users').doc(uid)),
+        tx.get(learningRef),
       ]);
 
       const alreadySolved = (ppSnap.exists && ppSnap.data()?.solved === true)
         || (progSnap.exists && progSnap.data()?.solved === true);
+      const xpAwarded = getProblemSubmissionXp(accepted, alreadySolved);
 
       const baseProgress = {
         userId: uid,
@@ -123,12 +135,21 @@ export async function POST(request: NextRequest) {
 
       if (userSnapTx.exists) {
         tx.update(db.collection('users').doc(uid), {
-          xp: FieldValue.increment(accepted && !alreadySolved ? 50 : accepted ? 15 : 10),
+          xp: FieldValue.increment(xpAwarded),
           totalSubmissions: FieldValue.increment(1),
           ...(accepted && !alreadySolved ? { problemsSolved: FieldValue.increment(1) } : {}),
           lastActive: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
         });
+      }
+      if (userSnapTx.exists) {
+        tx.set(learningRef, {
+          xp: FieldValue.increment(xpAwarded),
+          totalSubmissions: FieldValue.increment(1),
+          correctSubmissions: FieldValue.increment(accepted ? 1 : 0),
+          ...(accepted && !alreadySolved ? { problemsSolved: FieldValue.increment(1) } : {}),
+          lastSynced: FieldValue.serverTimestamp(),
+        }, { merge: true });
       }
       return { alreadySolved };
     });
@@ -156,6 +177,12 @@ export async function POST(request: NextRequest) {
     });
   } catch (err: any) {
     console.error('[Practice Judge] Error:', err);
+    if (err instanceof ExecutionBackendInternalError) {
+      return NextResponse.json({ error: err.message, code: 'JUDGE_INTERNAL_ERROR' }, { status: 502 });
+    }
+    if (err instanceof ExecutionBackendUnavailableError) {
+      return NextResponse.json({ error: err.message, code: 'JUDGE_UNAVAILABLE' }, { status: 503 });
+    }
     return NextResponse.json({ error: err?.message || 'Internal server error' }, { status: 500 });
   }
 }

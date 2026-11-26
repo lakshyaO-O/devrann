@@ -54,8 +54,7 @@ async function checkJudge0(): Promise<BackendStatus> {
 }
 
 async function checkPiston(): Promise<BackendStatus> {
-  // Matches the engine default so health reflects reality without env vars.
-  const url = process.env.PISTON_API_URL || 'https://emkc.org/api/v2/piston/execute';
+  const url = process.env.PISTON_API_URL || '';
   if (!url) {
     return { configured: false, reachable: false, version: null, latencyMs: null, error: 'PISTON_API_URL not configured' };
   }

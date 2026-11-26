@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminAuth, getAdminFirestore } from '@/firebase/admin';
 import { FieldValue } from 'firebase-admin/firestore';
+import { enforceSharedRateLimit } from '@/lib/rate-limit';
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,6 +19,11 @@ export async function POST(request: NextRequest) {
     }
 
     const uid = decodedToken.uid;
+    const limited = await enforceSharedRateLimit(uid, 'auth.create-profile', {
+      windowMs: 60_000,
+      maxRequests: 5,
+    });
+    if (limited) return limited;
     const { username } = await request.json();
 
     if (!username || typeof username !== 'string' || username.trim().length < 2) {

@@ -1,5 +1,5 @@
 import { verifyAuth } from '@/lib/verify-auth';
-import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limit'; import { enforceAiQuota, aiQuotaResponse } from '@/lib/ai-quota-server';
+import { enforceSharedRateLimit } from '@/lib/rate-limit'; import { enforceAiQuota, aiQuotaResponse } from '@/lib/ai-quota-server';
 
 const SYSTEM_PROMPT = `You are CodeAce — a friendly, enthusiastic coding assistant and platform guide built into DevRann (a competitive coding and learning platform).
 
@@ -43,8 +43,8 @@ export async function POST(req: Request) {
   try {
     const auth = await verifyAuth(req);
     if (auth instanceof Response) return auth;
-    const rateCheck = checkRateLimit(auth.uid, req);
-    if (!rateCheck.allowed) return rateLimitResponse(rateCheck.retryAfterMs);
+    const rateLimit = await enforceSharedRateLimit(auth.uid, 'ai.chat');
+    if (rateLimit) return rateLimit;
     const quotaCheck = await enforceAiQuota(auth.uid, 'aiMentor');
     if (!quotaCheck.allowed) {
       return Response.json(aiQuotaResponse(quotaCheck, 'aiMentor'), { status: 429 });

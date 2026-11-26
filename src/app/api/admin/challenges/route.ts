@@ -1,9 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminAuth, getAdminFirestore } from '@/firebase/admin';
-import { FieldValue } from 'firebase-admin/firestore';
 import type { AdminRole } from '@/types/admin';
 import { hasPermission } from '@/types/admin';
 import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limit';
+import { getIsoWeekRange } from '@/lib/challenges';
+
+const MAX_CHALLENGE_PROBLEMS = 10;
+
+function isUtcDate(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+async function publishedProblemIds(db: FirebaseFirestore.Firestore, ids: string[]): Promise<boolean> {
+  const snapshots = await Promise.all(ids.map((id) => db.collection('problems').doc(id).get()));
+  return snapshots.every((snapshot) =>
+    snapshot.exists
+    && snapshot.data()?.isPublished === true
+    && snapshot.data()?.isPremium !== true,
+  );
+}
 
 async function verifyAndGetRole(request: NextRequest): Promise<{ uid: string; role: AdminRole } | NextResponse> {
   const authHeader = request.headers.get('Authorization');
@@ -74,20 +91,58 @@ export async function POST(request: NextRequest) {
     const { action, data } = body;
 
     if (action === 'setDaily') {
-      if (!data?.date || !data?.problemId) {
-        return NextResponse.json({ error: 'Missing date or problemId' }, { status: 400 });
+      if (!isUtcDate(data?.date)
+        || typeof data?.problemId !== 'string'
+        || !data.problemId.trim()
+        || data.problemId.length > 128
+        || !Number.isInteger(data?.xpBonus)
+        || data.xpBonus < 0
+        || data.xpBonus > 1000) {
+        return NextResponse.json({ error: 'Daily challenge requires a UTC date, published problem ID, and XP bonus from 0 to 1000.' }, { status: 400 });
+      }
+      if (!(await publishedProblemIds(db, [data.problemId]))) {
+        return NextResponse.json({ error: 'Daily challenge problem must be published and available to all users.' }, { status: 400 });
       }
       const snap = await db.collection('challenges').doc('daily').get();
       const challenges = snap.exists ? (snap.data()?.challenges || []) : [];
-      const idx = challenges.findIndex((c: any) => c.date === data.date);
-      if (idx >= 0) challenges[idx] = data;
-      else challenges.push(data);
+      const start = new Date(`${data.date}T00:00:00.000Z`);
+      const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+      const challenge = {
+        date: data.date,
+        problemId: data.problemId,
+        xpBonus: data.xpBonus,
+        startAt: start.toISOString(),
+        endAt: end.toISOString(),
+        timeZone: 'UTC',
+      };
+      const idx = challenges.findIndex((item: any) => item.date === data.date);
+      if (idx >= 0) challenges[idx] = challenge;
+      else challenges.push(challenge);
       await db.collection('challenges').doc('daily').set({ challenges }, { merge: true });
     } else if (action === 'setWeekly') {
-      if (!data?.week || !data?.problemIds) {
-        return NextResponse.json({ error: 'Missing week or problemIds' }, { status: 400 });
+      const range = getIsoWeekRange(data?.week);
+      const problemIds = data?.problemIds;
+      if (!range
+        || !Array.isArray(problemIds)
+        || problemIds.length < 1
+        || problemIds.length > MAX_CHALLENGE_PROBLEMS
+        || problemIds.some((id: unknown) => typeof id !== 'string' || !id.trim() || id.length > 128)
+        || new Set(problemIds).size !== problemIds.length
+        || !Number.isInteger(data?.xpBonus)
+        || data.xpBonus < 0
+        || data.xpBonus > 5000) {
+        return NextResponse.json({ error: 'Weekly challenge requires a valid ISO week, 1–10 unique problem IDs, and an XP bonus from 0 to 5000.' }, { status: 400 });
       }
-      await db.collection('challenges').doc('weekly').set(data, { merge: true });
+      if (!(await publishedProblemIds(db, problemIds))) {
+        return NextResponse.json({ error: 'Every weekly challenge problem must be published and available to all users.' }, { status: 400 });
+      }
+      await db.collection('challenges').doc('weekly').set({
+        week: data.week,
+        problemIds,
+        xpBonus: data.xpBonus,
+        ...range,
+        timeZone: 'UTC',
+      }, { merge: true });
     } else {
       return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
     }

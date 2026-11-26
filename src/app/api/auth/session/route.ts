@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminAuth } from '@/firebase/admin';
+import { enforceSharedRateLimit } from '@/lib/rate-limit';
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,7 +17,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
-const expiresIn = 60 * 60 * 24 * 7 * 1000;
+    const limited = await enforceSharedRateLimit(decoded.uid, 'auth.session', {
+      windowMs: 60_000,
+      maxRequests: 20,
+    });
+    if (limited) return limited;
+
+    const expiresIn = 60 * 60 * 24 * 7 * 1000;
     const session = await getAdminAuth().createSessionCookie(idToken, { expiresIn });
 
     if (session.length > 4000) {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getAdminAuth, getAdminFirestore } from '@/firebase/admin';
-import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limit';
+import { enforceSharedRateLimit } from '@/lib/rate-limit';
 import { normalizeUsername, validateUsername } from '@/lib/username';
 
 const USERNAME_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
@@ -19,8 +19,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
   }
 
-  const rateLimit = checkRateLimit(identity.uid, request);
-  if (!rateLimit.allowed) return rateLimitResponse(rateLimit.retryAfterMs);
+  const rateLimit = await enforceSharedRateLimit(identity.uid, 'auth.update-username');
+  if (rateLimit) return rateLimit;
 
   const body = await request.json().catch(() => null);
   if (!body || typeof body.username !== 'string') {

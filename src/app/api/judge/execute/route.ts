@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminAuth, getAdminFirestore } from '@/firebase/admin';
-import { executeTestCases, isLanguageSupported } from '@/services/judge-engine';
-import { checkRateLimit, checkRateLimitFirestore, rateLimitResponse } from '@/lib/rate-limit';
-import type { CodingLanguage, TestCaseResult, Verdict } from '@/types';
+import {
+  executeTestCases,
+  ExecutionBackendInternalError,
+  ExecutionBackendUnavailableError,
+  isLanguageSupported,
+} from '@/services/judge-engine';
+import { enforceSharedRateLimit } from '@/lib/rate-limit';
+import type { CodingLanguage } from '@/types';
 
 interface JudgeRequest {
   code: string;
@@ -19,26 +24,6 @@ const DEFAULT_TIME_LIMIT_MS = 5000;
 const DEFAULT_MEMORY_LIMIT_KB = 512000;
 
 const JUDGE_RATE_LIMIT = parseInt(process.env.JUDGE_RATE_LIMIT || '10', 10);
-
-async function resolveHiddenFlags(problemId: string | undefined, clientTestCases: Array<{ isHidden?: boolean }>): Promise<boolean[]> {
-  if (problemId) {
-    for (const collection of ['problemSecrets', 'problemContent']) {
-      try {
-        const db = getAdminFirestore();
-        const snap = await db.collection(collection).doc(problemId).get();
-        if (snap.exists) {
-          const data = snap.data();
-          if (data?.testCases && Array.isArray(data.testCases) && data.testCases.length >= clientTestCases.length) {
-            return (data.testCases as Array<{ isHidden?: boolean }>).map(tc => tc.isHidden ?? false);
-          }
-        }
-      } catch {
-        continue;
-      }
-    }
-  }
-  return clientTestCases.map(tc => tc.isHidden ?? false);
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -57,11 +42,8 @@ export async function POST(request: NextRequest) {
 
     const uid = decodedToken.uid;
 
-    const { allowed, retryAfterMs } = checkRateLimit(uid, request, { windowMs: 60_000, maxRequests: JUDGE_RATE_LIMIT });
-    if (!allowed) return rateLimitResponse(retryAfterMs);
-
-    const firestoreCheck = await checkRateLimitFirestore(uid, 'judge.execute', { windowMs: 60_000, maxRequests: JUDGE_RATE_LIMIT });
-    if (!firestoreCheck.allowed) return rateLimitResponse(firestoreCheck.retryAfterMs);
+    const rateLimit = await enforceSharedRateLimit(uid, 'judge.execute', { windowMs: 60_000, maxRequests: JUDGE_RATE_LIMIT });
+    if (rateLimit) return rateLimit;
 
     const body: JudgeRequest = await request.json();
     const { code, language, testCases, timeLimitMs, memoryLimitKb, problemId } = body;
@@ -92,8 +74,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const hiddenFlags = await resolveHiddenFlags(problemId, testCases);
-
     const safeTimeLimit = Math.max(500, Math.min(Number(timeLimitMs) || DEFAULT_TIME_LIMIT_MS, 15000));
     const safeMemoryLimit = Math.max(64000, Math.min(Number(memoryLimitKb) || DEFAULT_MEMORY_LIMIT_KB, 1024000));
 
@@ -103,30 +83,20 @@ export async function POST(request: NextRequest) {
       testCases,
       safeTimeLimit,
       safeMemoryLimit,
-      problemId,
     );
-
-    const sanitizedResults: TestCaseResult[] = result.testCaseResults.map((tc, i) => {
-      if (hiddenFlags[i]) {
-        return {
-          ...tc,
-          input: '',
-          expectedOutput: '',
-          actualOutput: '',
-          stdout: '',
-          consoleOutput: '',
-        };
-      }
-      return tc;
-    });
 
     return NextResponse.json({
       ...result,
-      testCaseResults: sanitizedResults,
     });
 
   } catch (err: any) {
     console.error('[Judge Execute] Error:', err);
+    if (err instanceof ExecutionBackendInternalError) {
+      return NextResponse.json({ error: err.message, code: 'JUDGE_INTERNAL_ERROR' }, { status: 502 });
+    }
+    if (err instanceof ExecutionBackendUnavailableError) {
+      return NextResponse.json({ error: err.message, code: 'JUDGE_UNAVAILABLE' }, { status: 503 });
+    }
     return NextResponse.json({ error: err?.message || 'Internal server error' }, { status: 500 });
   }
 }
