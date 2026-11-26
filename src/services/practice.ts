@@ -8,7 +8,7 @@ import {
 } from 'firebase/firestore';
 import type { QueryDocumentSnapshot, DocumentData, Transaction } from 'firebase/firestore';
 import type {
-  PracticeProblemDocument, PracticeSubmission, Verdict, SubmissionStatus,
+  PracticeProblemDocument, PracticeProblemSummary, PracticeSubmission, Verdict, SubmissionStatus,
   UserPracticeProgress, RecentlyViewedProblem, CodingLanguage,
   ProblemContent, ProblemDocumentMeta, PracticeDraft, TestCaseResult,
 } from '@/types';
@@ -16,19 +16,89 @@ import { createApiJudge } from '@/features/practice/services/api-judge';
 
 const judge = createApiJudge();
 
-export async function fetchProblems(): Promise<PracticeProblemDocument[]> {
-  const { firestore: db } = initializeFirebase();
-  if (!db) return [];
-  const q = query(collection(db, 'problems'), orderBy('title', 'asc'));
-  const snap = await getDocs(q);
-  return snap.docs.map((d: QueryDocumentSnapshot<DocumentData>) => ({ id: d.id, ...d.data() } as PracticeProblemDocument));
+export interface ProblemCatalogStats {
+  total: number;
+  difficulty: Record<'Easy' | 'Medium' | 'Hard', number>;
+  topics: Record<string, number> | null;
+  topicsAvailable: boolean;
+  generatedAt: string;
+}
+
+export async function fetchProblemStats(): Promise<ProblemCatalogStats> {
+  const { auth } = initializeFirebase();
+  const user = auth?.currentUser;
+  if (!user) throw new Error('Sign in to load problem statistics.');
+  const token = await user.getIdToken();
+  const response = await fetch('/api/problems/stats', {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: 'no-store',
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data?.error || 'Problem statistics are temporarily unavailable.');
+  return data as ProblemCatalogStats;
+}
+
+export async function fetchProblems(): Promise<PracticeProblemSummary[]> {
+  const problems: PracticeProblemSummary[] = [];
+  let cursor: string | null = null;
+  let hasMore = true;
+  while (hasMore) {
+    const page = await fetchProblemPage({ cursor });
+    problems.push(...page.problems);
+    cursor = page.nextCursor;
+    hasMore = page.hasMore;
+  }
+  return problems;
+}
+
+export interface ProblemCatalogPage {
+  problems: PracticeProblemSummary[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  pageSize: number;
+}
+
+export interface ProblemCatalogQuery {
+  search?: string;
+  difficulty?: string;
+  topic?: string;
+  sort?: 'title' | 'difficulty' | 'points-asc' | 'points-desc';
+  status?: 'all' | 'solved' | 'unsolved' | 'attempted' | 'bookmarked';
+  cursor?: string | null;
+}
+
+export async function fetchProblemPage(
+  options: ProblemCatalogQuery = {},
+): Promise<ProblemCatalogPage> {
+  const { auth } = initializeFirebase();
+  if (!auth?.currentUser) throw new Error('Sign in to load published problems.');
+  const token = await auth.currentUser.getIdToken();
+  const params = new URLSearchParams({ limit: '25' });
+  if (options.search?.trim()) params.set('search', options.search.trim());
+  if (options.difficulty) params.set('difficulty', options.difficulty);
+  if (options.topic) params.set('topic', options.topic);
+  if (options.sort) params.set('sort', options.sort);
+  if (options.status && options.status !== 'all') params.set('status', options.status);
+  if (options.cursor) params.set('cursor', options.cursor);
+  const response = await fetch(`/api/problems?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: 'no-store',
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(typeof data?.error === 'string' ? data.error : 'Problem catalog is unavailable.');
+  }
+  if (!Array.isArray(data.problems)
+    || (data.nextCursor !== null && typeof data.nextCursor !== 'string')
+    || typeof data.hasMore !== 'boolean'
+    || typeof data.pageSize !== 'number') {
+    throw new Error('Problem catalog returned an invalid response.');
+  }
+  return data as ProblemCatalogPage;
 }
 
 export async function fetchProblem(problemId: string): Promise<PracticeProblemDocument | null> {
-  const { firestore: db } = initializeFirebase();
-  if (!db) return null;
-  const snap = await getDoc(doc(db, 'problems', problemId));
-  return snap.exists() ? ({ id: snap.id, ...snap.data() } as PracticeProblemDocument) : null;
+  return getPublishedProblem(problemId);
 }
 
 export function problemDocRef(problemId: string) {
@@ -139,15 +209,22 @@ export async function submitSolution(
   onProgress?.({ phase: 'finished', message: 'Execution complete' });
 
   const results: TestCaseResult[] = data.results || [];
+  const validVerdicts: Verdict[] = [
+    'Accepted', 'Wrong Answer', 'Runtime Error', 'Compilation Error',
+    'Time Limit Exceeded', 'Memory Limit Exceeded',
+  ];
+  if (!data.submission || !validVerdicts.includes(data.submission.verdict)) {
+    throw new Error('Judge returned an invalid submission response.');
+  }
   const submission: PracticeSubmission = {
-    id: data.submission?.id || 'unknown',
+    id: data.submission.id,
     userId, problemId, language, code,
-    verdict: data.submission?.verdict || 'Runtime Error',
-    passedTestCases: data.submission?.passedTestCases || 0,
-    totalTestCases: data.submission?.totalTestCases || 0,
-    executionTimeMs: data.submission?.executionTimeMs || 0,
-    memoryUsedKb: data.submission?.memoryUsedKb ?? -1,
-    submittedAt: data.submission?.submittedAt || new Date().toISOString(),
+    verdict: data.submission.verdict,
+    passedTestCases: data.submission.passedTestCases,
+    totalTestCases: data.submission.totalTestCases,
+    executionTimeMs: data.submission.executionTimeMs,
+    memoryUsedKb: data.submission.memoryUsedKb,
+    submittedAt: data.submission.submittedAt,
   };
 
   return { submission, results, compileTimeMs: data.compileTimeMs, codeSize: data.codeSize };
@@ -302,22 +379,96 @@ export async function getWeeklyChallengeProgress(userId: string): Promise<{ solv
   return { solved, total: weekly.problemIds.length, claimed: progressData.claimed || false };
 }
 
+export interface ChallengeProblemSummary {
+  id: string;
+  title: string;
+  difficulty: string | null;
+}
+
+export interface DailyChallengeStatus {
+  date: string;
+  problemId: string;
+  xpBonus: number;
+  startAt: string;
+  endAt: string;
+  completed: boolean;
+  claimed: boolean;
+  problem: ChallengeProblemSummary | null;
+}
+
+export interface WeeklyChallengeStatus {
+  week: string;
+  problemIds: string[];
+  xpBonus: number;
+  startAt: string;
+  endAt: string;
+  solvedProblemIds: string[];
+  completed: boolean;
+  claimed: boolean;
+  problems: ChallengeProblemSummary[];
+}
+
+export interface ChallengeStatus {
+  daily: DailyChallengeStatus | null;
+  weekly: WeeklyChallengeStatus | null;
+  serverTime: string;
+  timeZone: string;
+}
+
+export async function fetchChallengeStatus(): Promise<ChallengeStatus> {
+  const { auth } = initializeFirebase();
+  const user = auth?.currentUser;
+  if (!user) throw new Error('Sign in to load challenges.');
+  const token = await user.getIdToken();
+  const response = await fetch('/api/challenges/status', {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: 'no-store',
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data?.error || 'Challenges are temporarily unavailable.');
+  return data as ChallengeStatus;
+}
+
+export async function claimWeeklyChallengeXp(userId: string): Promise<{
+  alreadyClaimed: boolean;
+  xpAwarded: number;
+  solved: number;
+  total: number;
+}> {
+  const { auth } = initializeFirebase();
+  const user = auth?.currentUser;
+  if (!user || user.uid !== userId) throw new Error('You must be signed in to claim this reward.');
+  const token = await user.getIdToken();
+  const response = await fetch('/api/challenges/weekly/claim', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || 'Unable to claim the weekly challenge reward.');
+  return {
+    alreadyClaimed: result.alreadyClaimed === true,
+    xpAwarded: typeof result.xpAwarded === 'number' ? result.xpAwarded : 0,
+    solved: typeof result.solved === 'number' ? result.solved : 0,
+    total: typeof result.total === 'number' ? result.total : 0,
+  };
+}
+
 // ===== STATS AGGREGATION =====
 
 export async function getPracticeStats(userId: string) {
   const { firestore: db } = initializeFirebase();
   if (!db) return null;
-  const [progressSnap, submissionsSnap, problemsSnap] = await Promise.all([
+  const [progressSnap, submissionsSnap, problems] = await Promise.all([
     getDocs(collection(db, 'users', userId, 'practiceProgress')),
     getDocs(query(collection(db, 'users', userId, 'submissions'), orderBy('submittedAt', 'desc'), limit(500))),
-    getDocs(collection(db, 'problems')),
+    fetchProblems(),
   ]);
 
   const progressMap: Record<string, any> = {};
   progressSnap.docs.forEach((d: QueryDocumentSnapshot<DocumentData>) => { progressMap[d.id] = d.data(); });
 
   const problemsMap: Record<string, any> = {};
-  problemsSnap.docs.forEach((d: QueryDocumentSnapshot<DocumentData>) => { problemsMap[d.id] = d.data(); });
+  problems.forEach((problem) => { problemsMap[problem.id] = problem; });
 
   const rawSubmissions: Record<string, any>[] = submissionsSnap.docs.map((d: QueryDocumentSnapshot<DocumentData>) => ({ id: d.id, ...d.data() }));
   const submissions = rawSubmissions.map(s => ({
@@ -392,13 +543,6 @@ export async function getPracticeStats(userId: string) {
     }
   }
 
-  // Update Firestore streak if it changed
-  if (streak !== (userData.streak || 0)) {
-    try {
-      await updateDoc(doc(db, 'users', userId), { streak });
-    } catch { /* ignore */ }
-  }
-
   return {
     totalSolved: solved,
     totalAttempted: total,
@@ -419,58 +563,24 @@ export async function getPracticeStats(userId: string) {
 
 // ===== ACHIEVEMENTS =====
 
-const ACHIEVEMENT_DEFS = [
-  { id: 'first_solve', title: 'First Blood', desc: 'Solve your first problem', icon: '🎯', xp: 50 },
-  { id: 'ten_solves', title: 'Double Digits', desc: 'Solve 10 problems', icon: '💪', xp: 100 },
-  { id: 'fifty_solves', title: 'Half Century', desc: 'Solve 50 problems', icon: '🔥', xp: 250 },
-  { id: 'hundred_solves', title: 'Century', desc: 'Solve 100 problems', icon: '🏆', xp: 500 },
-  { id: 'easy_clear', title: 'Easy Street', desc: 'Solve all Easy problems', icon: '🌟', xp: 200 },
-  { id: 'streak_3', title: 'Hat Trick', desc: '3-day streak', icon: '⚡', xp: 75 },
-  { id: 'streak_7', title: 'Weekly Warrior', desc: '7-day streak', icon: '🔥', xp: 200 },
-  { id: 'streak_30', title: 'Monthly Master', desc: '30-day streak', icon: '👑', xp: 500 },
-  { id: 'speed_demon', title: 'Speed Demon', desc: 'Solve a problem in under 2 minutes', icon: '⏱️', xp: 100 },
-  { id: 'perfect_score', title: 'Perfect Score', desc: 'Solve a problem first try', icon: '💎', xp: 150 },
-  { id: 'topic_master', title: 'Topic Master', desc: 'Master any topic (80% solved)', icon: '🎓', xp: 300 },
-  { id: 'challenge_accepted', title: 'Challenge Accepted', desc: 'Complete a daily challenge', icon: '📅', xp: 100 },
-  { id: 'bookworm', title: 'Bookworm', desc: 'Bookmark 10 problems', icon: '📚', xp: 50 },
-  { id: 'collector', title: 'Collector', desc: 'Solve problems from 10+ topics', icon: '🗂️', xp: 150 },
-];
-
-export async function checkAndAwardAchievements(userId: string, stats: any) {
-  const { firestore: db } = initializeFirebase();
-  if (!db) return [];
-  const earnedSnap = await getDocs(collection(db, 'users', userId, 'achievements'));
-  const earnedIds = new Set(earnedSnap.docs.map((d: QueryDocumentSnapshot<DocumentData>) => d.id));
-  const newAchievements: any[] = [];
-
-  for (const def of ACHIEVEMENT_DEFS) {
-    if (earnedIds.has(def.id)) continue;
-    let earned = false;
-    if (def.id === 'first_solve' && stats.totalSolved >= 1) earned = true;
-    if (def.id === 'ten_solves' && stats.totalSolved >= 10) earned = true;
-    if (def.id === 'fifty_solves' && stats.totalSolved >= 50) earned = true;
-    if (def.id === 'hundred_solves' && stats.totalSolved >= 100) earned = true;
-    if (def.id === 'easy_clear' && (stats.byTopic?.Arrays?.solved || 0) >= 10) earned = true;
-    if (def.id === 'streak_3' && stats.currentStreak >= 3) earned = true;
-    if (def.id === 'streak_7' && stats.currentStreak >= 7) earned = true;
-    if (def.id === 'streak_30' && stats.currentStreak >= 30) earned = true;
-    if (def.id === 'challenge_accepted') earned = true;
-    if (def.id === 'bookworm') earned = true;
-    if (def.id === 'collector') {
-      const topicsWithSolves = Object.values(stats.byTopic || {}).filter((t: any) => (t.solved || 0) > 0);
-      if (topicsWithSolves.length >= 10) earned = true;
-    }
-
-    if (earned) {
-      await setDoc(doc(db, 'users', userId, 'achievements', def.id), {
-        ...def, earnedAt: serverTimestamp(), xpAwarded: def.xp,
-      });
-      await updateDoc(doc(db, 'users', userId), { xp: increment(def.xp) });
-      newAchievements.push(def);
-    }
+export async function checkAndAwardAchievements(userId: string, _stats: unknown) {
+  const { auth } = initializeFirebase();
+  if (!auth?.currentUser || auth.currentUser.uid !== userId) {
+    throw new Error('Sign in to evaluate achievements.');
   }
-
-  return newAchievements;
+  const token = await auth.currentUser.getIdToken();
+  const response = await fetch('/api/achievements/evaluate', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(typeof data?.error === 'string' ? data.error : 'Achievement service is unavailable.');
+  }
+  if (!Array.isArray(data.achievements)) {
+    throw new Error('Achievement service returned an invalid response.');
+  }
+  return data.achievements;
 }
 
 export async function getAchievements(userId: string) {
@@ -514,37 +624,40 @@ export async function getUserProblemVerdicts(userId: string): Promise<Record<str
 // ===== NEW SCHEMA: PROBLEM CONTENT (separate from metadata) =====
 
 export async function fetchProblemContent(problemId: string): Promise<ProblemContent | null> {
-  const { firestore: db } = initializeFirebase();
-  if (!db) return null;
-  const snap = await getDoc(doc(db, 'problemContent', problemId));
-  return snap.exists() ? (snap.data() as ProblemContent) : null;
+  const problem = await getPublishedProblem(problemId);
+  if (!problem) return null;
+  return {
+    description: problem.description,
+    constraints: problem.constraints,
+    examples: problem.examples,
+    testCases: problem.testCases,
+    hints: problem.hints,
+    editorial: problem.editorial,
+    solutionCode: {},
+    starterCode: problem.starterCode,
+    timeLimitMs: problem.timeLimitMs,
+    memoryLimitKb: problem.memoryLimitKb,
+  } as ProblemContent;
 }
 
 export async function getFullProblem(problemId: string): Promise<PracticeProblemDocument | null> {
-  const { firestore: db } = initializeFirebase();
-  if (!db) return null;
-  const [metaSnap, contentSnap] = await Promise.all([
-    getDoc(doc(db, 'problems', problemId)),
-    getDoc(doc(db, 'problemContent', problemId)),
-  ]);
-  if (!metaSnap.exists()) return null;
-  const meta = { id: metaSnap.id, ...metaSnap.data() } as ProblemDocumentMeta;
-  if (!contentSnap.exists()) return null;
-  const content = contentSnap.data() as ProblemContent;
-  return {
-    ...meta,
-    description: content.description,
-    constraints: content.constraints,
-    examples: content.examples,
-    testCases: content.testCases,
-    hints: content.hints,
-    editorial: content.editorial,
-    solutionCode: Object.fromEntries(Object.entries(content.solutionCode).filter(([_, v]) => v != null)) as Record<CodingLanguage, string>,
-    starterCode: Object.fromEntries(Object.entries(content.starterCode).filter(([_, v]) => v != null)) as Record<CodingLanguage, string>,
-    timeLimitMs: content.timeLimitMs,
-    memoryLimitKb: content.memoryLimitKb,
-    acceptanceRate: meta.acceptanceRate,
-  };
+  return getPublishedProblem(problemId);
+}
+
+async function getPublishedProblem(problemId: string): Promise<PracticeProblemDocument | null> {
+  const { auth } = initializeFirebase();
+  const user = auth?.currentUser;
+  if (!user) throw new Error('Sign in to open a problem.');
+  const response = await fetch(`/api/problems/${encodeURIComponent(problemId)}`, {
+    headers: { Authorization: `Bearer ${await user.getIdToken()}` },
+    cache: 'no-store',
+  });
+  const data = await response.json().catch(() => ({}));
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new Error(typeof data?.error === 'string' ? data.error : 'Unable to load problem.');
+  }
+  return data.problem as PracticeProblemDocument;
 }
 
 // ===== DRAFTS (separate from savedCode) =====

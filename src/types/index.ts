@@ -375,6 +375,29 @@ export type ProblemTopic =
   | 'SQL';
 
 /** Full problem (metadata + content) – currently used everywhere */
+export interface PracticeProblemSummary {
+  id: string;
+  title: string;
+  difficulty: Difficulty;
+  category: string;
+  points: number;
+  topics: string[];
+  acceptanceRate?: number;
+  estimatedTime?: number;
+  isPremium?: boolean;
+}
+
+export interface ProblemSourceAttribution {
+  provider: string;
+  repository: string;
+  path: string;
+  revision: string;
+  url: string;
+  attribution: string;
+  license: string;
+  licenseUrl: string;
+}
+
 export interface PracticeProblemDocument {
   id: string;
   title: string;
@@ -397,6 +420,7 @@ export interface PracticeProblemDocument {
   prerequisites?: string[];
   companyTags?: string[];
   relatedProblems?: string[];
+  sources?: ProblemSourceAttribution[];
   difficultyRating?: number;
   isPremium?: boolean;
   isPublished?: boolean;
@@ -425,6 +449,7 @@ export interface ProblemDocumentMeta {
   difficultyRating: number;
   prerequisites: string[];
   relatedProblems: string[];
+  sources?: ProblemSourceAttribution[];
   searchTokens: string[];
   createdAt: string;
   updatedAt: string;

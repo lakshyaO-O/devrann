@@ -30,10 +30,24 @@ interface ExecutionResult {
   memory: number | null;
 }
 
+export class ExecutionBackendUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ExecutionBackendUnavailableError';
+  }
+}
+
+export class ExecutionBackendInternalError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ExecutionBackendInternalError';
+  }
+}
+
 const SUPPORTED_LANGUAGES: CodingLanguage[] = ['javascript', 'typescript', 'python', 'java', 'cpp', 'go', 'rust'];
 
-export function isLanguageSupported(language: CodingLanguage): boolean {
-  return SUPPORTED_LANGUAGES.includes(language);
+export function isLanguageSupported(language: unknown): language is CodingLanguage {
+  return typeof language === 'string' && SUPPORTED_LANGUAGES.includes(language as CodingLanguage);
 }
 
 function stripCommentsAndStrings(code: string): string {
@@ -353,7 +367,7 @@ function generateTestHarness(
   }
 }
 
-const PISTON_API_URL = process.env.PISTON_API_URL || 'https://emkc.org/api/v2/piston/execute';
+const PISTON_API_URL = process.env.PISTON_API_URL || '';
 const JUDGE0_API_URL = process.env.JUDGE0_API_URL || '';
 const JUDGE0_API_KEY = process.env.JUDGE0_API_KEY || '';
 const JUDGE0_RAPIDAPI_KEY = process.env.JUDGE0_RAPIDAPI_KEY || process.env.RAPIDAPI_KEY || '';
@@ -369,17 +383,78 @@ const PISTON_LANGUAGE: Record<CodingLanguage, { language: string; version: strin
 };
 
 const JUDGE0_LANGUAGE_ID: Record<CodingLanguage, number> = {
-  javascript: 63,
-  typescript: 63,
-  python: 71,
-  java: 62,
-  cpp: 54,
-  go: 60,
-  rust: 73,
+  javascript: 93,
+  typescript: 94,
+  python: 92,
+  java: 91,
+  cpp: 105,
+  go: 95,
+  rust: 108,
 };
 
 async function callExecutionApi(code: string, language: CodingLanguage, timeLimitMs: number, memoryLimitKb: number): Promise<ExecutionResult> {
-  let pistonError: Error | null = null;
+  if (JUDGE0_API_URL) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000);
+    const baseUrl = JUDGE0_API_URL.replace(/\/+$/, '');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (baseUrl.includes('rapidapi.com') || baseUrl.includes('.p.rapidapi.')) {
+      if (JUDGE0_RAPIDAPI_KEY) {
+        headers['X-RapidAPI-Key'] = JUDGE0_RAPIDAPI_KEY;
+        headers['X-RapidAPI-Host'] = new URL(baseUrl).host;
+      }
+    } else if (JUDGE0_API_KEY) {
+      headers['X-Auth-Token'] = JUDGE0_API_KEY;
+    }
+
+    try {
+      const response = await fetch(`${baseUrl}/submissions?base64_encoded=false&wait=true`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          source_code: code,
+          language_id: JUDGE0_LANGUAGE_ID[language],
+          ...(language === 'cpp' ? { compiler_options: '-std=c++17' } : {}),
+          stdin: '',
+          cpu_time_limit: Math.max(0.5, Math.min(timeLimitMs / 1000, 15)),
+          memory_limit: Math.max(64, Math.min(Math.ceil(memoryLimitKb / 1024), 1024)),
+        }),
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(`Judge0 API returned ${response.status}: ${await response.text()}`);
+      const data = await response.json();
+      const statusId = data.status?.id;
+      if (statusId === 10) {
+        throw new ExecutionBackendInternalError('Judge0 reported an internal execution error.');
+      }
+      if (![3, 4, 5, 6, 7, 8, 9, 11, 12].includes(statusId)) {
+        throw new Error('Judge0 did not return a final execution verdict.');
+      }
+      const isCompileError = statusId === 6;
+      const isTimeLimit = statusId === 5;
+      const isMemoryLimit = statusId === 9;
+      return {
+        stdout: data.stdout ?? '',
+        stderr: isMemoryLimit
+          ? [data.stderr, 'memory limit exceeded'].filter(Boolean).join('\n')
+          : data.stderr ?? '',
+        exitCode: isTimeLimit || isMemoryLimit ? 1 : data.exit_code ?? (statusId === 3 ? 0 : 1),
+        signal: isTimeLimit || isMemoryLimit ? 'SIGKILL' : null,
+        compileOutput: isCompileError ? (data.compile_output ?? data.message ?? null) : null,
+        compileCode: isCompileError ? 1 : null,
+        time: data.time != null ? parseFloat(data.time) : null,
+        memory: data.memory != null ? data.memory : null,
+      };
+    } catch (err: any) {
+      if (err instanceof ExecutionBackendInternalError) throw err;
+      if (err.name === 'AbortError') {
+        throw new ExecutionBackendUnavailableError('Judge0 execution request timed out.');
+      }
+      throw new ExecutionBackendUnavailableError(`Judge0 execution failed: ${err.message || 'provider error'}`);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
 
   if (PISTON_API_URL) {
     const controller = new AbortController();
@@ -408,10 +483,15 @@ async function callExecutionApi(code: string, language: CodingLanguage, timeLimi
       const data = await response.json();
       const compile = data.compile;
       const run = data.run;
+      if ((!run || typeof run !== 'object'
+          || (!Number.isInteger(run.code) && typeof run.signal !== 'string'))
+        && (!compile || typeof compile !== 'object' || !Number.isInteger(compile.code) || compile.code === 0)) {
+        throw new Error('Piston returned an incomplete execution response.');
+      }
       return {
         stdout: run?.stdout ?? '',
         stderr: run?.stderr ?? '',
-        exitCode: run?.code ?? 0,
+        exitCode: run?.code ?? (run?.signal ? 0 : 1),
         signal: run?.signal ?? null,
         compileOutput: compile?.stderr ?? compile?.output ?? null,
         compileCode: compile?.code ?? null,
@@ -420,64 +500,13 @@ async function callExecutionApi(code: string, language: CodingLanguage, timeLimi
       };
     } catch (err: any) {
       clearTimeout(timeout);
-      if (err.name === 'AbortError') pistonError = new Error('Piston API request timed out');
-      else pistonError = err as Error;
-      // Fall through to Judge0 if configured
+      throw new ExecutionBackendUnavailableError(
+        err.name === 'AbortError' ? 'Piston execution request timed out.' : 'Configured Piston execution provider is unavailable.',
+      );
     }
   }
 
-  if (JUDGE0_API_URL) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60000);
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    // Judge0 CE self-hosted uses X-Auth-Token; RapidAPI-hosted CE uses X-RapidAPI-Key/Host.
-    if (JUDGE0_API_URL.includes('rapidapi.com') || JUDGE0_API_URL.includes('.p.rapidapi.')) {
-      if (JUDGE0_RAPIDAPI_KEY) {
-        headers['X-RapidAPI-Key'] = JUDGE0_RAPIDAPI_KEY;
-        headers['X-RapidAPI-Host'] = new URL(JUDGE0_API_URL).host;
-      }
-    } else if (JUDGE0_API_KEY) {
-      headers['X-Auth-Token'] = JUDGE0_API_KEY;
-    }
-    try {
-      const response = await fetch(`${JUDGE0_API_URL}/submissions?base64_encoded=false&wait=true`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          source_code: code,
-          language_id: JUDGE0_LANGUAGE_ID[language],
-          stdin: '',
-          cpu_time_limit: Math.ceil(timeLimitMs / 1000),
-          memory_limit: Math.ceil(memoryLimitKb / 1024),
-        }),
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
-      if (!response.ok) throw new Error(`Judge0 API returned ${response.status}: ${await response.text()}`);
-      const data = await response.json();
-      const statusId = data.status?.id ?? 0;
-      const isCompileError = statusId === 6;
-      return {
-        stdout: data.stdout ?? '',
-        stderr: data.stderr ?? '',
-        exitCode: data.exit_code ?? (statusId === 3 ? 0 : 1),
-        signal: null,
-        compileOutput: isCompileError ? (data.compile_output ?? data.message ?? null) : null,
-        compileCode: isCompileError ? 1 : null,
-        time: data.time != null ? parseFloat(data.time) : null,
-        memory: data.memory != null ? data.memory : null,
-      };
-    } catch (err: any) {
-      clearTimeout(timeout);
-      if (err.name === 'AbortError') throw new Error('Judge0 API request timed out');
-      throw err;
-    }
-  }
-
-  if (pistonError) throw pistonError;
-  throw new Error(
-    'No execution backend configured. Set PISTON_API_URL or JUDGE0_API_URL in your .env.local file.',
-  );
+  throw new ExecutionBackendUnavailableError('No execution backend is configured.');
 }
 
 function detectMemoryLimit(signal: string | null, stderr: string): boolean {
@@ -579,17 +608,10 @@ export async function executeTestCases(
     try {
       execResult = await callExecutionApi(harness, language, timeLimitMs, memoryLimitKb);
     } catch (err: any) {
-      const elapsedMs = Date.now() - startTime;
-      totalExecutionMs += elapsedMs;
-      const errorMsg = err.message || 'Execution failed';
-      testCaseResults.push({
-        passed: false, verdict: 'Runtime Error',
-        input: tc.isHidden ? '' : tc.input,
-        expectedOutput: tc.isHidden ? '' : tc.expected,
-        actualOutput: '', executionTimeMs: elapsedMs, memoryUsedKb: -1, exitCode: 1, error: errorMsg,
-      });
-      allPassed = false;
-      continue;
+      if (err instanceof ExecutionBackendUnavailableError || err instanceof ExecutionBackendInternalError) throw err;
+      throw new ExecutionBackendUnavailableError(
+        `Execution provider failed before returning a verdict: ${err.message || 'unknown provider error'}`,
+      );
     }
 
     const elapsedMs = Date.now() - startTime;
@@ -616,6 +638,7 @@ export async function executeTestCases(
     }
 
     const stdout = execResult.stdout.trim();
+    const visibleOutput = tc.isHidden ? '' : stdout;
     const stderr = execResult.stderr || '';
     const exitCode = execResult.exitCode;
     const signal = execResult.signal;
@@ -626,7 +649,7 @@ export async function executeTestCases(
           passed: false, verdict: 'Memory Limit Exceeded',
           input: tc.isHidden ? '' : tc.input,
           expectedOutput: tc.isHidden ? '' : tc.expected,
-          actualOutput: stdout, executionTimeMs: elapsedMs,
+          actualOutput: visibleOutput, executionTimeMs: elapsedMs,
           memoryUsedKb: -1, exitCode, error: 'Memory Limit Exceeded',
         });
         allPassed = false;
@@ -636,7 +659,7 @@ export async function executeTestCases(
         passed: false, verdict: 'Time Limit Exceeded',
         input: tc.isHidden ? '' : tc.input,
         expectedOutput: tc.isHidden ? '' : tc.expected,
-        actualOutput: stdout, executionTimeMs: elapsedMs,
+        actualOutput: visibleOutput, executionTimeMs: elapsedMs,
         memoryUsedKb: -1, exitCode: 124, error: 'Time Limit Exceeded',
       });
       allPassed = false;
@@ -648,8 +671,8 @@ export async function executeTestCases(
         passed: false, verdict: 'Runtime Error',
         input: tc.isHidden ? '' : tc.input,
         expectedOutput: tc.isHidden ? '' : tc.expected,
-        actualOutput: stdout, executionTimeMs: elapsedMs,
-        memoryUsedKb: -1, exitCode, error: stderr || `Exit code ${exitCode}`,
+        actualOutput: visibleOutput, executionTimeMs: elapsedMs,
+        memoryUsedKb: -1, exitCode, error: tc.isHidden ? 'Runtime Error' : stderr || `Exit code ${exitCode}`,
       });
       allPassed = false;
       continue;
@@ -667,14 +690,14 @@ export async function executeTestCases(
           passed: true, verdict: 'Accepted',
           input: tc.isHidden ? '' : tc.input,
           expectedOutput: tc.isHidden ? '' : expected,
-          actualOutput: stdout, executionTimeMs: elapsedMs, memoryUsedKb: execResult.memory ?? -1, exitCode: 0,
+          actualOutput: visibleOutput, executionTimeMs: elapsedMs, memoryUsedKb: execResult.memory ?? -1, exitCode: 0,
         });
       } else {
         testCaseResults.push({
           passed: false, verdict: 'Wrong Answer',
           input: tc.isHidden ? '' : tc.input,
           expectedOutput: tc.isHidden ? '' : expected,
-          actualOutput: stdout, executionTimeMs: elapsedMs, memoryUsedKb: execResult.memory ?? -1, exitCode: 0,
+          actualOutput: visibleOutput, executionTimeMs: elapsedMs, memoryUsedKb: execResult.memory ?? -1, exitCode: 0,
         });
         allPassed = false;
       }
@@ -684,7 +707,7 @@ export async function executeTestCases(
       testCaseResults.push({
         passed: false, verdict: 'Wrong Answer',
         input: tc.isHidden ? '' : tc.input,
-        expectedOutput: '', actualOutput: stdout,
+        expectedOutput: '', actualOutput: visibleOutput,
         executionTimeMs: elapsedMs, memoryUsedKb: execResult.memory ?? -1, exitCode: 0,
         error: 'Test case has no expected output',
       });

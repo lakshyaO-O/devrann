@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { initializeFirebase } from '@/firebase';
-import { doc, getDoc, updateDoc, increment, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 import { DailyReward } from '@/app/lib/types';
+import { useAppStore } from '@/store/app-store';
 
 const DAILY_REWARDS: DailyReward[] = [
   { day: 1, coins: 50, xp: 25, claimed: false },
@@ -16,6 +17,7 @@ const DAILY_REWARDS: DailyReward[] = [
 ];
 
 export function useDailyLogin(userId: string | null) {
+  const { loadBeginnerFromFirebase } = useAppStore();
   const [canClaim, setCanClaim] = useState(false);
   const [streak, setStreak] = useState(0);
   const [currentDay, setCurrentDay] = useState(0);
@@ -65,31 +67,26 @@ export function useDailyLogin(userId: string | null) {
   const claimReward = useCallback(async () => {
     if (!userId || !canClaim || claimedToday) return false;
     try {
-      const { firestore: db } = initializeFirebase();
-      if (!db) return false;
-      const day = currentDay;
-      const reward = DAILY_REWARDS[day];
-      if (!reward) return false;
-
-      const newStreak = streak + 1;
-      const newDay = (day + 1) % 7;
-
-      await updateDoc(doc(db, 'users', userId), {
-        coins: increment(reward.coins),
-        xp: increment(reward.xp),
-        dailyLoginStreak: newStreak,
-        lastLoginDate: new Date().toISOString(),
-        lastRewardDay: newDay,
-        lastActive: serverTimestamp(),
+      const { auth } = initializeFirebase();
+      const user = auth?.currentUser;
+      if (!user || user.uid !== userId) return false;
+      const response = await fetch('/api/auth/daily-login', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${await user.getIdToken()}` },
       });
-
-      setStreak(newStreak);
-      setCurrentDay(newDay);
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Unable to claim daily reward.');
+      setStreak(result.streak);
+      setCurrentDay(result.day);
       setCanClaim(false);
       setClaimedToday(true);
-      return true;
-    } catch { return false; }
-  }, [userId, canClaim, claimedToday, currentDay, streak]);
+      if (!result.alreadyClaimed) await loadBeginnerFromFirebase(userId);
+      return result.alreadyClaimed !== true;
+    } catch (error) {
+      console.error('[Daily Login] Reward claim failed.', error);
+      return false;
+    }
+  }, [userId, canClaim, claimedToday, loadBeginnerFromFirebase]);
 
   return { canClaim, streak, currentDay, claimedToday, loading, rewards, claimReward };
 }

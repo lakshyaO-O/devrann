@@ -2,20 +2,17 @@
 
 import { initializeFirebase } from '@/firebase';
 import {
-  doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc,
-  collection, query, where, orderBy, limit, serverTimestamp,
-  onSnapshot, Timestamp, increment, runTransaction, writeBatch,
-  arrayUnion, arrayRemove,
+  doc, getDoc, getDocs, collection, query, where, orderBy, limit,
+  onSnapshot, startAfter, documentId, Timestamp,
 } from 'firebase/firestore';
 import type { QueryDocumentSnapshot, DocumentData, QuerySnapshot } from 'firebase/firestore';
 import {
   getStorage, getDownloadURL, ref, uploadBytes,
 } from 'firebase/storage';
 import type {
-  ChatDoc, ChatMessage, LastMessage, MessageType,
-  MessageReactions, ReplyTo,
+  ChatDoc, ChatMessage, MessageType, ReplyTo,
 } from '@/config/chat';
-import { getChatId, MESSAGE_BATCH_SIZE } from '@/config/chat';
+import { MESSAGE_BATCH_SIZE } from '@/config/chat';
 
 function chatRef(chatId: string) {
   const { firestore: db } = initializeFirebase();
@@ -30,37 +27,36 @@ function messagesColRef(chatId: string) {
 // ===== CREATE CHAT =====
 
 export async function createOrGetChat(uid1: string, uid2: string): Promise<string | null> {
-  const { firestore: db } = initializeFirebase();
-  if (!db || !uid1 || !uid2) return null;
-  const chatId = getChatId(uid1, uid2);
-  const ref = doc(db, 'chats', chatId);
-  const snap = await getDoc(ref);
-  if (snap.exists()) return chatId;
-
-  const [user1Snap, user2Snap] = await Promise.all([
-    getDoc(doc(db, 'users', uid1)),
-    getDoc(doc(db, 'users', uid1, 'friends', uid2)),
-  ]);
-  const u1 = user1Snap.data();
-  const u2 = user2Snap.data();
-  const participantData: Record<string, { username: string; photoURL: string }> = {
-    [uid1]: { username: u1?.username || 'User', photoURL: u1?.photoURL || '' },
-    [uid2]: { username: u2?.username || 'User', photoURL: u2?.photoURL || '' },
-  };
-
-  await setDoc(ref, {
-    type: 'one-to-one',
-    participants: [uid1, uid2],
-    participantData,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-    lastMessage: null,
-    lastMessageSenderId: null,
-    lastMessageAt: null,
-    unreadCount: { [uid1]: 0, [uid2]: 0 },
+  const { auth } = initializeFirebase();
+  const currentUser = auth?.currentUser;
+  if (!currentUser || currentUser.uid !== uid1 || !uid2) return null;
+  const response = await fetch('/api/chats', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${await currentUser.getIdToken()}`,
+    },
+    body: JSON.stringify({ otherUid: uid2 }),
   });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || 'Unable to open conversation.');
+  return data.chatId as string;
+}
 
-  return chatId;
+async function postChatAction(chatId: string, action: string, values: Record<string, unknown> = {}) {
+  const user = initializeFirebase().auth?.currentUser;
+  if (!user) throw new Error('Sign in to use chat.');
+  const response = await fetch(`/api/chats/${encodeURIComponent(chatId)}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${await user.getIdToken()}`,
+    },
+    body: JSON.stringify({ action, ...values }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || 'Chat operation failed.');
+  return data;
 }
 
 // ===== SEND MESSAGE =====
@@ -71,12 +67,9 @@ export async function sendMessage(
   replyTo: ReplyTo | null = null,
   file?: File,
 ): Promise<string | null> {
-  const { firestore: db, app } = initializeFirebase();
-  if (!db) return null;
+  const { app, auth } = initializeFirebase();
+  if (!auth?.currentUser || auth.currentUser.uid !== senderId) throw new Error('Invalid chat sender.');
   const storage = app ? getStorage(app) : null;
-
-  const messagesRef = messagesColRef(chatId);
-  if (!messagesRef) return null;
 
   let fileUrl: string | null = null;
   let fileName: string | null = null;
@@ -90,108 +83,60 @@ export async function sendMessage(
     fileSize = file.size;
   }
 
-  const chatDoc = await getDoc(doc(db, 'chats', chatId));
-  const participants = chatDoc.data()?.participants || [];
-  const otherUid = participants.find((p: string) => p !== senderId);
-
-  const msgRef = await addDoc(messagesRef, {
-    chatId, senderId, text, type,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-    edited: false, deleted: false,
-    replyTo, reactions: {} as MessageReactions,
-    readBy: [senderId],
-    fileUrl, fileName, fileSize,
-  });
-
-  const lastMsg: LastMessage = {
-    text: type === 'image' ? '📷 Image' : type === 'file' ? `📎 ${fileName || 'File'}` : text.slice(0, 100),
-    senderId,
-    createdAt: serverTimestamp(),
+  const result = await postChatAction(chatId, 'send', {
+    clientMessageId: crypto.randomUUID(),
+    text,
     type,
-  };
-
-  await updateDoc(doc(db, 'chats', chatId), {
-    lastMessage: lastMsg,
-    lastMessageSenderId: senderId,
-    lastMessageAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-    [`unreadCount.${senderId}`]: 0,
-    ...(otherUid ? { [`unreadCount.${otherUid}`]: increment(1) } : {}),
+    replyTo,
+    fileUrl,
+    fileName,
+    fileSize,
   });
-
-  return msgRef.id;
+  return result.id as string;
 }
 
 // ===== MARK READ =====
 
 export async function markChatRead(chatId: string, userId: string): Promise<void> {
-  const { firestore: db } = initializeFirebase();
-  if (!db) return;
-  await updateDoc(doc(db, 'chats', chatId), {
-    [`unreadCount.${userId}`]: 0,
-  });
+  const user = initializeFirebase().auth?.currentUser;
+  if (!user || user.uid !== userId) throw new Error('Invalid chat user.');
+  await postChatAction(chatId, 'readAll');
 }
 
 // ===== EDIT MESSAGE =====
 
 export async function editMessage(chatId: string, messageId: string, newText: string): Promise<void> {
-  const { firestore: db } = initializeFirebase();
-  if (!db) return;
-  await updateDoc(doc(db, 'chats', chatId, 'messages', messageId), {
-    text: newText, edited: true, updatedAt: serverTimestamp(),
-  });
+  await postChatAction(chatId, 'edit', { messageId, text: newText });
 }
 
 // ===== DELETE MESSAGE =====
 
 export async function deleteMessage(chatId: string, messageId: string): Promise<void> {
-  const { firestore: db } = initializeFirebase();
-  if (!db) return;
-  await updateDoc(doc(db, 'chats', chatId, 'messages', messageId), {
-    deleted: true, text: '', updatedAt: serverTimestamp(),
-  });
+  await postChatAction(chatId, 'delete', { messageId });
 }
 
 // ===== REACT TO MESSAGE =====
 
 export async function toggleReaction(chatId: string, messageId: string, userId: string, emoji: string): Promise<void> {
-  const { firestore: db } = initializeFirebase();
-  if (!db) return;
-  const msgRef = doc(db, 'chats', chatId, 'messages', messageId);
-  const snap = await getDoc(msgRef);
-  if (!snap.exists()) return;
-  const reactions: MessageReactions = snap.data().reactions || {};
-  const current = reactions[emoji] || [];
-  if (current.includes(userId)) {
-    const updated = current.filter((u: string) => u !== userId);
-    if (updated.length === 0) {
-      const { [emoji]: _, ...rest } = reactions;
-      await updateDoc(msgRef, { reactions: rest });
-    } else {
-      await updateDoc(msgRef, { [`reactions.${emoji}`]: updated });
-    }
-  } else {
-    await updateDoc(msgRef, { [`reactions.${emoji}`]: arrayUnion(userId) });
-  }
+  const user = initializeFirebase().auth?.currentUser;
+  if (!user || user.uid !== userId) throw new Error('Invalid chat user.');
+  await postChatAction(chatId, 'reaction', { messageId, emoji });
 }
 
 // ===== READ RECEIPT =====
 
 export async function markMessageRead(chatId: string, messageId: string, userId: string): Promise<void> {
-  const { firestore: db } = initializeFirebase();
-  if (!db) return;
-  await updateDoc(doc(db, 'chats', chatId, 'messages', messageId), {
-    readBy: arrayUnion(userId),
-  });
+  const user = initializeFirebase().auth?.currentUser;
+  if (!user || user.uid !== userId) throw new Error('Invalid chat user.');
+  await postChatAction(chatId, 'read', { messageId });
 }
 
 // ===== TYPING INDICATOR =====
 
-export function setTypingStatus(chatId: string, userId: string, typing: boolean): void {
-  const { firestore: db } = initializeFirebase();
-  if (!db) return;
-  setDoc(doc(db, 'chats', chatId, 'typing', userId), { typing, updatedAt: serverTimestamp() }, { merge: true });
+export async function setTypingStatus(chatId: string, userId: string, typing: boolean): Promise<void> {
+  const user = initializeFirebase().auth?.currentUser;
+  if (!user || user.uid !== userId) throw new Error('Invalid chat user.');
+  await postChatAction(chatId, 'typing', { typing });
 }
 
 // ===== REAL-TIME SUBSCRIPTIONS =====
@@ -212,7 +157,9 @@ export function subscribeChatList(
     const list: ChatDoc[] = [];
     snap.forEach((d: QueryDocumentSnapshot<DocumentData>) => {
       const data = d.data();
-      list.push({ id: d.id, ...data } as ChatDoc);
+      if (!Array.isArray(data.hiddenFor) || !data.hiddenFor.includes(userId)) {
+        list.push({ id: d.id, ...data } as ChatDoc);
+      }
     });
     onData(list);
   }, onError);
@@ -225,13 +172,13 @@ export function subscribeMessages(
 ): () => void {
   const ref = messagesColRef(chatId);
   if (!ref) return () => {};
-  const q = query(ref, orderBy('createdAt', 'asc'), limit(MESSAGE_BATCH_SIZE));
+  const q = query(ref, orderBy('createdAt', 'desc'), orderBy(documentId(), 'desc'), limit(MESSAGE_BATCH_SIZE));
   return onSnapshot(q, (snap: QuerySnapshot<DocumentData>) => {
     const list: ChatMessage[] = [];
     snap.forEach((d: QueryDocumentSnapshot<DocumentData>) => {
       list.push({ id: d.id, ...d.data() } as ChatMessage);
     });
-    onData(list);
+    onData(list.reverse());
   }, onError);
 }
 
@@ -246,7 +193,8 @@ export function subscribeTyping(
   return onSnapshot(q, (snap: QuerySnapshot<DocumentData>) => {
     const users: string[] = [];
     snap.forEach((d: QueryDocumentSnapshot<DocumentData>) => {
-      if (d.id !== myId) users.push(d.id);
+      const expiresAt = d.data().expiresAt as Timestamp | undefined;
+      if (d.id !== myId && expiresAt && expiresAt.toMillis() > Date.now()) users.push(d.id);
     });
     onData(users);
   });
@@ -287,9 +235,9 @@ export async function loadMoreMessages(
   if (oldestId) {
     const oldestSnap = await getDoc(doc(db, 'chats', chatId, 'messages', oldestId));
     if (!oldestSnap.exists()) return [];
-    q = query(ref, orderBy('createdAt', 'desc'), limit(MESSAGE_BATCH_SIZE));
+    q = query(ref, orderBy('createdAt', 'desc'), orderBy(documentId(), 'desc'), startAfter(oldestSnap), limit(MESSAGE_BATCH_SIZE));
   } else {
-    q = query(ref, orderBy('createdAt', 'desc'), limit(MESSAGE_BATCH_SIZE));
+    q = query(ref, orderBy('createdAt', 'desc'), orderBy(documentId(), 'desc'), limit(MESSAGE_BATCH_SIZE));
   }
   const snap = await getDocs(q);
   return snap.docs.map((d: QueryDocumentSnapshot<DocumentData>) => ({ ...d.data(), id: d.id } as ChatMessage)).reverse();
@@ -336,7 +284,5 @@ export async function getUserProfile(userId: string): Promise<{ username: string
 // ===== DELETE CHAT (soft) =====
 
 export async function deleteChat(chatId: string): Promise<void> {
-  const { firestore: db } = initializeFirebase();
-  if (!db) return;
-  await deleteDoc(doc(db, 'chats', chatId));
+  await postChatAction(chatId, 'hide');
 }

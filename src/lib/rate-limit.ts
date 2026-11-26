@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { createHash } from 'node:crypto';
 import { getAdminFirestore } from '@/firebase/admin';
 
 interface RateLimitEntry {
@@ -11,9 +12,18 @@ interface RateLimitConfig {
   maxRequests: number;
 }
 
+export interface SharedRateLimitResult {
+  allowed: boolean;
+  retryAfterMs: number;
+  unavailable?: boolean;
+}
+
 const DEFAULT_CONFIG: RateLimitConfig = {
   windowMs: 60_000,
-  maxRequests: parseInt(process.env.ADMIN_RATE_LIMIT || '60', 10),
+  maxRequests: Number.isSafeInteger(Number(process.env.ADMIN_RATE_LIMIT))
+    && Number(process.env.ADMIN_RATE_LIMIT) > 0
+    ? Number(process.env.ADMIN_RATE_LIMIT)
+    : 60,
 };
 
 const store = new Map<string, RateLimitEntry>();
@@ -69,49 +79,60 @@ export async function checkRateLimitFirestore(
   uid: string,
   action: string,
   config: RateLimitConfig = DEFAULT_CONFIG,
-): Promise<{ allowed: boolean; retryAfterMs: number }> {
+): Promise<SharedRateLimitResult> {
   try {
+    if (!Number.isSafeInteger(config.windowMs) || config.windowMs <= 0
+      || !Number.isSafeInteger(config.maxRequests) || config.maxRequests <= 0) {
+      throw new Error('Invalid shared rate-limit configuration.');
+    }
     const db = getAdminFirestore();
-    const docId = `${action}_${uid}`;
+    const docId = createHash('sha256').update(`${action}:${uid}`).digest('hex');
     const ref = db.collection('rateLimits').doc(docId);
-    const snap = await ref.get();
     const now = Date.now();
 
-    if (!snap.exists) {
-      await ref.set({
-        count: 1,
-        windowStart: now,
+    return await db.runTransaction(async (transaction) => {
+      const snap = await transaction.get(ref);
+      const data = snap.data();
+      const windowStart = typeof data?.windowStart === 'number' ? data.windowStart : now;
+      const count = data?.windowStart === windowStart && now - windowStart <= config.windowMs
+        ? Number(data?.count) || 0
+        : 0;
+      if (count >= config.maxRequests) {
+        return { allowed: false, retryAfterMs: Math.max(1, config.windowMs - (now - windowStart)) };
+      }
+
+      transaction.set(ref, {
         action,
         uid,
+        count: count + 1,
+        windowStart: count === 0 ? now : windowStart,
       });
       return { allowed: true, retryAfterMs: 0 };
-    }
-
-    const data = snap.data()!;
-    const windowStart = data.windowStart as number;
-
-    if (now - windowStart > config.windowMs) {
-      await ref.update({
-        count: 1,
-        windowStart: now,
-      });
-      return { allowed: true, retryAfterMs: 0 };
-    }
-
-    const count = (data.count as number) + 1;
-    if (count > config.maxRequests) {
-      const retryAfterMs = config.windowMs - (now - windowStart);
-      return { allowed: false, retryAfterMs };
-    }
-
-    await ref.update({ count });
-    return { allowed: true, retryAfterMs: 0 };
-  } catch {
-    return { allowed: true, retryAfterMs: 0 };
+    });
+  } catch (error) {
+    console.error('[RateLimit] Shared Firestore limiter unavailable', error);
+    return { allowed: false, retryAfterMs: 0, unavailable: true };
   }
 }
 
-export function rateLimitResponse(retryAfterMs: number): NextResponse {
+export async function enforceSharedRateLimit(
+  uid: string,
+  action: string,
+  config: RateLimitConfig = DEFAULT_CONFIG,
+): Promise<NextResponse | null> {
+  const result = await checkRateLimitFirestore(uid, action, config);
+  if (result.unavailable) return rateLimitResponse(0, true);
+  if (!result.allowed) return rateLimitResponse(result.retryAfterMs);
+  return null;
+}
+
+export function rateLimitResponse(retryAfterMs: number, unavailable = false): NextResponse {
+  if (unavailable) {
+    return NextResponse.json(
+      { error: 'Request protection is temporarily unavailable. Please retry later.', code: 'RATE_LIMIT_UNAVAILABLE' },
+      { status: 503 },
+    );
+  }
   return NextResponse.json(
     { error: `Rate limit exceeded. Try again in ${Math.ceil(retryAfterMs / 1000)} seconds.` },
     { status: 429, headers: { 'Retry-After': String(Math.ceil(retryAfterMs / 1000)) } },

@@ -2,18 +2,83 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { initializeFirebase } from '@/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 import {
-  collection, query, orderBy, onSnapshot, where,
+  collection, query, onSnapshot,
 } from 'firebase/firestore';
 import type { QueryDocumentSnapshot, DocumentData, QuerySnapshot } from 'firebase/firestore';
-import type { PracticeProblemDocument, UserPracticeProgress, Difficulty } from '@/types';
+import type { PracticeProblemSummary, UserPracticeProgress, Difficulty } from '@/types';
 import {
-  fetchProblems, getAllUserProgress, toggleBookmark as fbToggleBookmark,
+  fetchProblems, fetchProblemPage, fetchProblemStats, getAllUserProgress, toggleBookmark as fbToggleBookmark,
   fetchRecentlyViewed, trackRecentlyViewed,
 } from '@/services/practice';
+import type { ProblemCatalogPage, ProblemCatalogQuery, ProblemCatalogStats } from '@/services/practice';
+
+export function useProblemCatalogPage(
+  options: ProblemCatalogQuery,
+) {
+  const [page, setPage] = useState<ProblemCatalogPage>({
+    problems: [], nextCursor: null, hasMore: false, pageSize: 25,
+  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const [retryToken, setRetryToken] = useState(0);
+  const search = options.search ?? '';
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
+  const difficulty = options.difficulty ?? '';
+  const topic = options.topic ?? '';
+  const sort = options.sort ?? 'title';
+  const status = options.status ?? 'all';
+  const cursor = options.cursor ?? null;
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search), 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError(null);
+    const { auth } = initializeFirebase();
+    if (!auth) {
+      setPage({ problems: [], nextCursor: null, hasMore: false, pageSize: 25 });
+      setError(new Error('Authentication is unavailable.'));
+      setLoading(false);
+      return () => { active = false; };
+    }
+
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        setPage({ problems: [], nextCursor: null, hasMore: false, pageSize: 25 });
+        setError(new Error('Sign in to load published problems.'));
+        setLoading(false);
+        return;
+      }
+      setLoading(true);
+      fetchProblemPage({ search: debouncedSearch, difficulty, topic, sort, status, cursor }).then((result) => {
+        if (active) setPage(result);
+      }).catch((cause) => {
+        if (!active) return;
+        setPage({ problems: [], nextCursor: null, hasMore: false, pageSize: 25 });
+        setError(cause instanceof Error ? cause : new Error('Problem catalog is unavailable.'));
+      }).finally(() => {
+        if (active) setLoading(false);
+      });
+    });
+    return () => { active = false; unsubscribe(); };
+  }, [debouncedSearch, difficulty, topic, sort, status, cursor, retryToken]);
+
+  return {
+    ...page,
+    loading,
+    error,
+    retry: () => setRetryToken((token) => token + 1),
+  };
+}
 
 export function usePracticeProblems() {
-  const [problems, setProblems] = useState<PracticeProblemDocument[]>([]);
+  const [problems, setProblems] = useState<PracticeProblemSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [retryToken, setRetryToken] = useState(0);
@@ -22,37 +87,88 @@ export function usePracticeProblems() {
     let active = true;
     setLoading(true);
     setError(null);
-    const { firestore: db } = initializeFirebase();
-    if (!db) {
+    const { auth } = initializeFirebase();
+    if (!auth) {
       setProblems([]);
-      setError(new Error('The problem database is not configured.'));
+      setError(new Error('Authentication is unavailable.'));
       setLoading(false);
       return () => { active = false; };
     }
-    const q = query(
-      collection(db, 'problems'),
-      where('isPublished', '==', true),
-      orderBy('title', 'asc'),
-    );
-    const unsub = onSnapshot(q, (snap: QuerySnapshot<DocumentData>) => {
-      const fbData = snap.docs.map((d: QueryDocumentSnapshot<DocumentData>) => ({ id: d.id, ...d.data() } as PracticeProblemDocument));
-      if (!active) return;
-      setProblems(fbData);
-      setError(null);
-      setLoading(false);
-    }, (cause) => {
-      if (!active) return;
-      setProblems([]);
-      setError(cause);
-      setLoading(false);
+
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        setProblems([]);
+        setError(new Error('Sign in to load published problems.'));
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      fetchProblems().then((items) => {
+        if (!active) return;
+        setProblems(items);
+        setError(null);
+      }).catch((cause) => {
+        if (!active) return;
+        setProblems([]);
+        setError(cause instanceof Error ? cause : new Error('Problem catalog is unavailable.'));
+      }).finally(() => {
+        if (active) setLoading(false);
+      });
     });
     return () => {
       active = false;
-      unsub();
+      unsubscribe();
     };
   }, [retryToken]);
 
   return { problems, loading, error, retry: () => setRetryToken((token) => token + 1) };
+}
+
+export function useProblemStats() {
+  const [stats, setStats] = useState<ProblemCatalogStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const [retryToken, setRetryToken] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    const { auth } = initializeFirebase();
+    if (!auth) {
+      setError(new Error('Authentication is unavailable.'));
+      setLoading(false);
+      return () => { active = false; };
+    }
+
+    setLoading(true);
+    setError(null);
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        setStats(null);
+        setError(new Error('Sign in to load problem statistics.'));
+        setLoading(false);
+        return;
+      }
+      fetchProblemStats().then((result) => {
+        if (active) setStats(result);
+      }).catch((cause) => {
+        if (!active) return;
+        setStats(null);
+        setError(cause instanceof Error ? cause : new Error('Problem statistics are unavailable.'));
+      }).finally(() => {
+        if (active) setLoading(false);
+      });
+    });
+
+    return () => { active = false; unsubscribe(); };
+  }, [retryToken]);
+
+  return {
+    stats,
+    loading,
+    error,
+    retry: () => setRetryToken((token) => token + 1),
+  };
 }
 
 export function useUserProgress(userId: string | null) {

@@ -2,36 +2,30 @@
 
 import { initializeFirebase } from '@/firebase';
 import {
-  collection, doc, getDoc, getDocs, setDoc, updateDoc, addDoc,
-  query, where, orderBy, limit, serverTimestamp, increment, arrayUnion, arrayRemove,
-  Timestamp,
+  collection, doc, getDoc, getDocs, query, where, orderBy, limit,
 } from 'firebase/firestore';
 import type { QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
 import type {
   ShopItem, UserInventory, PurchaseRecord, DevCoinEarning, DevCoinSource, EarningLimit, ShopItemType,
 } from '@/types';
-import { EARNING_LIMITS } from '@/types';
 
 const SHOP_COLLECTION = 'shopItems';
 const INVENTORY_DOC = 'default';
 
-function now(): string {
-  return new Date().toISOString();
-}
-
-function todayStart(): string {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString();
-}
-
-function weekStart(): string {
-  const d = new Date();
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  d.setDate(diff);
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString();
+async function postShopAction(path: string, body: Record<string, unknown>) {
+  const user = initializeFirebase().auth?.currentUser;
+  if (!user) throw new Error('Sign in to use the shop.');
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${await user.getIdToken()}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || 'Shop action failed.');
+  return data;
 }
 
 // ---- Shop Items ----
@@ -81,54 +75,14 @@ export async function getDevCoinBalance(userId: string): Promise<number> {
 // ---- Purchase ----
 
 export async function purchaseItem(userId: string, itemId: string): Promise<{ success: boolean; error?: string }> {
-  const { firestore: db } = initializeFirebase();
-  if (!db) return { success: false, error: 'No Firebase' };
-
-  const itemRef = doc(db, SHOP_COLLECTION, itemId);
-  const itemSnap = await getDoc(itemRef);
-  if (!itemSnap.exists()) return { success: false, error: 'Item not found' };
-
-  const item = itemSnap.data() as ShopItem;
-  if (!item.available) return { success: false, error: 'Item not available' };
-  if (item.currency !== 'devcoins') return { success: false, error: 'Invalid currency' };
-
-  const userRef = doc(db, 'users', userId);
-  const userSnap = await getDoc(userRef);
-  if (!userSnap.exists()) return { success: false, error: 'User not found' };
-
-  const userData = userSnap.data();
-  const balance = userData.devcoins || 0;
-  if (balance < item.price) return { success: false, error: 'Insufficient DevCoins' };
-
-  const inventoryRef = doc(db, 'users', userId, 'inventory', INVENTORY_DOC);
-  const inventorySnap = await getDoc(inventoryRef);
-
-  if (inventorySnap.exists()) {
-    const invData = inventorySnap.data();
-    const ownedItems: string[] = invData.items || [];
-    if (ownedItems.includes(itemId)) return { success: false, error: 'Already owned' };
+  const user = initializeFirebase().auth?.currentUser;
+  if (!user || user.uid !== userId) return { success: false, error: 'Invalid shop user.' };
+  try {
+    await postShopAction('/api/shop/purchase', { itemId });
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Purchase failed.' };
   }
-
-  await updateDoc(userRef, { devcoins: increment(-item.price) });
-
-  const purchaseRecord: Omit<PurchaseRecord, 'id'> = {
-    userId,
-    itemId,
-    itemName: item.name,
-    itemType: item.type,
-    itemRarity: item.rarity,
-    price: item.price,
-    purchasedAt: now(),
-  };
-  await addDoc(collection(db, 'users', userId, 'purchaseHistory'), purchaseRecord);
-
-  if (inventorySnap.exists()) {
-    await updateDoc(inventoryRef, { items: arrayUnion(itemId) });
-  } else {
-    await setDoc(inventoryRef, { userId, items: [itemId], equipped: {} });
-  }
-
-  return { success: true };
 }
 
 // ---- Inventory ----
@@ -155,35 +109,29 @@ export async function getOwnedItems(userId: string): Promise<ShopItem[]> {
 }
 
 export async function equipItem(userId: string, itemId: string): Promise<boolean> {
-  const { firestore: db } = initializeFirebase();
-  if (!db) return false;
-
-  const inventoryRef = doc(db, 'users', userId, 'inventory', INVENTORY_DOC);
-  const [itemSnap, invSnap] = await Promise.all([
-    getDoc(doc(db, SHOP_COLLECTION, itemId)),
-    getDoc(inventoryRef),
-  ]);
-  if (!itemSnap.exists()) return false;
-  if (!invSnap.exists()) return false;
-
-  const item = itemSnap.data() as ShopItem;
-  const invData = invSnap.data();
-  if (!(invData.items || []).includes(itemId)) return false;
-
-  await updateDoc(inventoryRef, { [`equipped.${item.type}`]: itemId });
-  return true;
+  const user = initializeFirebase().auth?.currentUser;
+  if (!user || user.uid !== userId) return false;
+  try {
+    const item = await getShopItemById(itemId);
+    if (!item) return false;
+    await postShopAction('/api/shop/inventory', { action: 'equip', itemId, type: item.type });
+    return true;
+  } catch (error) {
+    console.error('[Shop] Unable to equip item.', error);
+    return false;
+  }
 }
 
 export async function unequipItem(userId: string, itemType: ShopItemType): Promise<boolean> {
-  const { firestore: db } = initializeFirebase();
-  if (!db) return false;
-
-  const inventoryRef = doc(db, 'users', userId, 'inventory', INVENTORY_DOC);
-  const invSnap = await getDoc(inventoryRef);
-  if (!invSnap.exists()) return false;
-
-  await updateDoc(inventoryRef, { [`equipped.${itemType}`]: '' });
-  return true;
+  const user = initializeFirebase().auth?.currentUser;
+  if (!user || user.uid !== userId) return false;
+  try {
+    await postShopAction('/api/shop/inventory', { action: 'unequip', type: itemType });
+    return true;
+  } catch (error) {
+    console.error('[Shop] Unable to unequip item.', error);
+    return false;
+  }
 }
 
 export async function isItemOwned(userId: string, itemId: string): Promise<boolean> {
@@ -214,76 +162,16 @@ export async function recordEarning(
   description: string,
   metadata?: Record<string, any>,
 ): Promise<{ success: boolean; amount: number; error?: string }> {
-  const { firestore: db } = initializeFirebase();
-  if (!db) return { success: false, amount: 0, error: 'No Firebase' };
-
-  const limitConfig = EARNING_LIMITS.find(l => l.source === source);
-  if (!limitConfig) return { success: false, amount: 0, error: 'Unknown source' };
-
-  const amount = limitConfig.amountPerEvent;
-
-  if (limitConfig.cooldownMinutes && limitConfig.cooldownMinutes > 0) {
-    const cooldownMs = limitConfig.cooldownMinutes * 60 * 1000;
-    const recentQ = query(
-      collection(db, 'users', userId, 'earnings'),
-      where('source', '==', source),
-      orderBy('earnedAt', 'desc'),
-      limit(1),
-    );
-    const recentSnap = await getDocs(recentQ);
-    if (!recentSnap.empty) {
-      const lastEarning = recentSnap.docs[0].data() as DevCoinEarning;
-      const lastTime = new Date(lastEarning.earnedAt).getTime();
-      if (Date.now() - lastTime < cooldownMs) {
-        const remaining = Math.ceil((cooldownMs - (Date.now() - lastTime)) / 60000);
-        return { success: false, amount: 0, error: `Cooldown active — wait ${remaining}min` };
-      }
-    }
-  }
-
-  const today = todayStart();
-  const week = weekStart();
-
-  const [dailyEarnings, weeklyEarnings] = await Promise.all([
-    getDocs(query(
-      collection(db, 'users', userId, 'earnings'),
-      where('source', '==', source),
-      where('earnedAt', '>=', today),
-    )),
-    getDocs(query(
-      collection(db, 'users', userId, 'earnings'),
-      where('source', '==', source),
-      where('earnedAt', '>=', week),
-    )),
-  ]);
-
-  let dailyTotal = 0;
-  dailyEarnings.forEach((d: QueryDocumentSnapshot<DocumentData>) => { dailyTotal += (d.data() as DevCoinEarning).amount; });
-  let weeklyTotal = 0;
-  weeklyEarnings.forEach((d: QueryDocumentSnapshot<DocumentData>) => { weeklyTotal += (d.data() as DevCoinEarning).amount; });
-
-  if (limitConfig.dailyMax > 0 && dailyTotal + amount > limitConfig.dailyMax) {
-    return { success: false, amount: 0, error: `Daily limit reached for ${source}` };
-  }
-  if (limitConfig.weeklyMax > 0 && weeklyTotal + amount > limitConfig.weeklyMax) {
-    return { success: false, amount: 0, error: `Weekly limit reached for ${source}` };
-  }
-
-  const earning: Omit<DevCoinEarning, 'id'> = {
-    userId,
-    amount,
-    source,
-    description,
-    earnedAt: now(),
-    metadata,
+  void source;
+  void description;
+  void metadata;
+  const user = initializeFirebase().auth?.currentUser;
+  if (!user || user.uid !== userId) return { success: false, amount: 0, error: 'Invalid shop user.' };
+  return {
+    success: false,
+    amount: 0,
+    error: 'DevCoin rewards are available only from verified server-side platform events.',
   };
-
-  await Promise.all([
-    addDoc(collection(db, 'users', userId, 'earnings'), earning),
-    updateDoc(doc(db, 'users', userId), { devcoins: increment(amount) }),
-  ]);
-
-  return { success: true, amount };
 }
 
 export async function getRecentEarnings(userId: string, max: number = 20): Promise<DevCoinEarning[]> {

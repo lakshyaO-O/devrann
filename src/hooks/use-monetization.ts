@@ -46,28 +46,33 @@ export function useMonetization(userId: string | null) {
 
   const generateReferralCode = useCallback(async () => {
     if (!userId) return '';
-    const code = `REF-${userId.slice(0, 6)}-${Date.now().toString(36).toUpperCase()}`;
     try {
-      const { firestore: db } = initializeFirebase();
-      if (!db) return '';
-      await updateDoc(doc(db, 'users', userId), { referralCode: code });
-      setReferralCode(code);
-      return code;
+      const { auth } = initializeFirebase();
+      if (!auth?.currentUser || auth.currentUser.uid !== userId) return '';
+      const token = await auth.currentUser.getIdToken();
+      const response = await fetch('/api/referrals/code', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || typeof result.code !== 'string') return '';
+      setReferralCode(result.code);
+      return result.code;
     } catch { return ''; }
   }, [userId]);
 
   const applyReferral = useCallback(async (code: string) => {
     try {
-      const { firestore: db } = initializeFirebase();
-      if (!db || !userId) return false;
-      const refDoc = await getDoc(doc(db, 'referrals', code));
-      if (!refDoc.exists()) return false;
-      const refData = refDoc.data();
-      await Promise.all([
-        updateDoc(doc(db, 'users', refData.userId), { coins: increment(100), xp: increment(50) }),
-        updateDoc(doc(db, 'users', userId), { coins: increment(50), xp: increment(25), referredBy: refData.userId }),
-      ]);
-      return true;
+      const { auth } = initializeFirebase();
+      if (!auth?.currentUser || auth.currentUser.uid !== userId) return false;
+      const token = await auth.currentUser.getIdToken();
+      const response = await fetch('/api/referrals/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ code }),
+      });
+      const result = await response.json().catch(() => ({}));
+      return response.ok && result.success === true;
     } catch { return false; }
   }, [userId]);
 

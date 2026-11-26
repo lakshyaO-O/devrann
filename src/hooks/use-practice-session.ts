@@ -59,9 +59,14 @@ export function usePracticeSession(
   useEffect(() => {
     if (!problem || prevProblemRef.current === problem.id) return;
     prevProblemRef.current = problem.id;
-    const starter = problem.starterCode[state.language] || problem.starterCode.javascript || '';
+    const availableLanguages = Object.keys(problem.starterCode) as CodingLanguage[];
+    const language = availableLanguages.includes(state.language)
+      ? state.language
+      : availableLanguages[0] ?? state.language;
+    const starter = problem.starterCode[language] || '';
     setState(s => ({
       ...s,
+      language,
       code: starter,
       testResults: [],
       verdict: null,
@@ -82,7 +87,7 @@ export function usePracticeSession(
     setState(s => ({
       ...s,
       language,
-      code: problem?.starterCode[language] || s.code,
+      code: problem?.starterCode[language] || '',
     }));
   }, [problem]);
 

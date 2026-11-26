@@ -2,53 +2,53 @@
 
 import { initializeFirebase } from '@/firebase';
 import {
-  collection, doc, getDoc, getDocs, setDoc, updateDoc, addDoc,
-  query, where, orderBy, limit, startAfter, serverTimestamp, increment,
-  arrayUnion, arrayRemove,
+  collection, query, orderBy, limit, startAfter, getDocs,
 } from 'firebase/firestore';
 import type { QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
 import type { StudyGroup, StudyGroupMessage } from '@/types';
 
-export async function createGroup(groupData: Omit<StudyGroup, 'id' | 'createdAt' | 'updatedAt' | 'memberCount'>) {
-  const { firestore: db } = initializeFirebase();
-  if (!db) return null;
-
-  const ref = await addDoc(collection(db, 'studyGroups'), {
-    ...groupData,
-    memberCount: 1,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
+async function postGroupAction(groupId: string, action: string, values: Record<string, unknown> = {}) {
+  const user = initializeFirebase().auth?.currentUser;
+  if (!user) throw new Error('Sign in to use study groups.');
+  const response = await fetch(`/api/study-groups/${encodeURIComponent(groupId)}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${await user.getIdToken()}`,
+    },
+    body: JSON.stringify({ action, ...values }),
   });
-  return ref.id;
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || 'Study group operation failed.');
+  return data;
+}
+
+export async function createGroup(groupData: Omit<StudyGroup, 'id' | 'createdAt' | 'updatedAt' | 'memberCount'>) {
+  const user = initializeFirebase().auth?.currentUser;
+  if (!user) throw new Error('Sign in to create a study group.');
+  const response = await fetch('/api/study-groups', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${await user.getIdToken()}`,
+    },
+    body: JSON.stringify(groupData),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || 'Unable to create study group.');
+  return data.id as string;
 }
 
 export async function joinGroup(groupId: string, userId: string) {
-  const { firestore: db } = initializeFirebase();
-  if (!db) return;
-
-  const ref = doc(db, 'studyGroups', groupId);
-  const snap = await getDoc(ref);
-  if (!snap.exists()) return;
-
-  const data = snap.data();
-  if (data.memberIds.includes(userId)) return;
-  if (data.memberIds.length >= data.maxMembers) return;
-
-  await updateDoc(ref, {
-    memberIds: arrayUnion(userId),
-    memberCount: increment(1),
-  });
+  const user = initializeFirebase().auth?.currentUser;
+  if (!user || user.uid !== userId) throw new Error('Invalid group user.');
+  await postGroupAction(groupId, 'join');
 }
 
 export async function leaveGroup(groupId: string, userId: string) {
-  const { firestore: db } = initializeFirebase();
-  if (!db) return;
-
-  const ref = doc(db, 'studyGroups', groupId);
-  await updateDoc(ref, {
-    memberIds: arrayRemove(userId),
-    memberCount: increment(-1),
-  });
+  const user = initializeFirebase().auth?.currentUser;
+  if (!user || user.uid !== userId) throw new Error('Invalid group user.');
+  await postGroupAction(groupId, 'leave');
 }
 
 export async function getGroupMessages(
@@ -72,44 +72,25 @@ export async function getGroupMessages(
 }
 
 export async function sendMessage(groupId: string, messageData: Omit<StudyGroupMessage, 'id' | 'createdAt' | 'groupId'>) {
-  const { firestore: db } = initializeFirebase();
-  if (!db) return null;
-
-  const ref = await addDoc(collection(db, 'studyGroups', groupId, 'messages'), {
-    ...messageData,
-    groupId,
-    createdAt: serverTimestamp(),
-  });
-
-  await updateDoc(doc(db, 'studyGroups', groupId), {
-    updatedAt: serverTimestamp(),
-  });
-
-  return ref.id;
+  const result = await postGroupAction(groupId, 'send', { content: messageData.content });
+  return result.id as string;
 }
 
 export async function searchGroups(
   queryStr: string,
   filters?: { topic?: string; isPublic?: boolean },
 ): Promise<StudyGroup[]> {
-  const { firestore: db } = initializeFirebase();
-  if (!db) return [];
-
-  const constraints: any[] = [orderBy('memberCount', 'desc'), limit(20)];
-  if (filters?.topic) constraints.unshift(where('topic', '==', filters.topic));
-  if (filters?.isPublic !== undefined) constraints.unshift(where('isPublic', '==', filters.isPublic));
-
-  const q = query(collection(db, 'studyGroups'), ...constraints);
-  const snap = await getDocs(q);
-
-  let groups = snap.docs.map((d: QueryDocumentSnapshot<DocumentData>) => ({ id: d.id, ...d.data() } as StudyGroup));
-
-  if (queryStr) {
-    const lower = queryStr.toLowerCase();
-    groups = groups.filter(
-      (g: any) => g.name.toLowerCase().includes(lower) || g.description.toLowerCase().includes(lower) || g.tags.some((t: any) => t.toLowerCase().includes(lower)),
-    );
-  }
-
-  return groups;
+  const user = initializeFirebase().auth?.currentUser;
+  if (!user) throw new Error('Sign in to search study groups.');
+  const params = new URLSearchParams();
+  if (filters?.topic) params.set('topic', filters.topic);
+  if (filters?.isPublic !== undefined) params.set('isPublic', String(filters.isPublic));
+  if (queryStr) params.set('search', queryStr);
+  const response = await fetch(`/api/study-groups?${params}`, {
+    headers: { Authorization: `Bearer ${await user.getIdToken()}` },
+    cache: 'no-store',
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || 'Unable to search study groups.');
+  return data.groups as StudyGroup[];
 }

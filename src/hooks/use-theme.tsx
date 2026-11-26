@@ -16,10 +16,14 @@ export function useTheme() {
     if (stored === 'light' || stored === 'dark') {
       setTheme(stored);
       document.documentElement.classList.toggle('dark', stored === 'dark');
+      document.documentElement.classList.toggle('light', stored === 'light');
+      document.documentElement.style.colorScheme = stored;
     } else {
       // Default to dark, ensure class is set
       setTheme('dark');
       document.documentElement.classList.add('dark');
+      document.documentElement.classList.remove('light');
+      document.documentElement.style.colorScheme = 'dark';
     }
   }, []);
 
@@ -28,6 +32,8 @@ export function useTheme() {
       const next = prev === 'dark' ? 'light' : 'dark';
       localStorage.setItem(THEME_KEY, next);
       document.documentElement.classList.toggle('dark', next === 'dark');
+      document.documentElement.classList.toggle('light', next === 'light');
+      document.documentElement.style.colorScheme = next;
       return next;
     });
   }, []);
@@ -36,12 +42,16 @@ export function useTheme() {
     setTheme('light');
     localStorage.setItem(THEME_KEY, 'light');
     document.documentElement.classList.remove('dark');
+    document.documentElement.classList.add('light');
+    document.documentElement.style.colorScheme = 'light';
   }, []);
 
   const setDark = useCallback(() => {
     setTheme('dark');
     localStorage.setItem(THEME_KEY, 'dark');
     document.documentElement.classList.add('dark');
+    document.documentElement.classList.remove('light');
+    document.documentElement.style.colorScheme = 'dark';
   }, []);
 
   return { theme, toggleTheme, setLight, setDark, mounted };

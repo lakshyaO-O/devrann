@@ -6,7 +6,7 @@ import {
   subscribeMessages, subscribeChatList, subscribeTyping,
   sendMessage, markChatRead, toggleReaction,
   editMessage, deleteMessage, searchMessages as searchMessagesService,
-  setTypingStatus, createOrGetChat, markMessageRead,
+  setTypingStatus, createOrGetChat,
   loadMoreMessages,
 } from '@/services/chat';
 
@@ -40,6 +40,7 @@ export function useChat(chatId: string | null, userId: string | null) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const typingSentRef = useRef(false);
 
   useEffect(() => {
     if (!chatId || !userId) { setLoading(false); return; }
@@ -51,8 +52,7 @@ export function useChat(chatId: string | null, userId: string | null) {
       // Auto-mark messages as read
       const unread = msgs.filter(m => !m.readBy?.includes(userId) && m.senderId !== userId);
       if (unread.length > 0) {
-        markChatRead(chatId, userId);
-        unread.forEach(m => markMessageRead(chatId, m.id, userId));
+        void markChatRead(chatId, userId).catch((err) => setError(err.message));
       }
     }, (err) => {
       setError(err.message);
@@ -90,11 +90,15 @@ export function useChat(chatId: string | null, userId: string | null) {
 
   const setTyping = useCallback((typing: boolean) => {
     if (!chatId || !userId) return;
-    setTypingStatus(chatId, userId, typing);
+    if (typingSentRef.current !== typing) {
+      typingSentRef.current = typing;
+      void setTypingStatus(chatId, userId, typing).catch((err) => setError(err.message));
+    }
     if (typing) {
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
       typingTimerRef.current = setTimeout(() => {
-        setTypingStatus(chatId, userId, false);
+        typingSentRef.current = false;
+        void setTypingStatus(chatId, userId, false).catch((err) => setError(err.message));
       }, 3000);
     }
   }, [chatId, userId]);

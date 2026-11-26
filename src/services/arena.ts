@@ -208,44 +208,35 @@ export async function submitBattleCode(
   battleId: string, userId: string, code: string, language: CodingLanguage,
   testCases: Array<{ input: string; expected: string }>,
 ) {
-  try {
-    const user = (await import('firebase/auth')).getAuth().currentUser;
-    if (!user) return { passed: 0, total: 0, verdict: 'Runtime Error' as const };
-    const idToken = await user.getIdToken();
-
-    const res = await fetch('/api/battles/submit', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${idToken}`,
-      },
-      body: JSON.stringify({ battleId, code, language }),
-    });
-
-    const data = await res.json();
-    if (!res.ok) {
-      if ((data?.error || '').toLowerCase().includes('already submitted')) {
-        return { passed: 0, total: 0, verdict: 'Already Submitted' as const };
-      }
-      if ((data?.error || '').toLowerCase().includes('already ended')) {
-        return { passed: 0, total: 0, verdict: 'Battle Ended' as const };
-      }
-      return { passed: 0, total: 0, verdict: 'Runtime Error' as const };
-    }
-    return {
-      passed: data.passed || 0,
-      total: data.total || testCases.length,
-      verdict: (data.result === 'WIN'
-        ? 'Accepted'
-        : data.result === 'LOSS'
-          ? 'Wrong Answer'
-          : 'Submitted — waiting for opponent') as 'Accepted' | 'Wrong Answer' | 'Runtime Error',
-    };
-  } catch {
-    return { passed: 0, total: 0, verdict: 'Runtime Error' as const };
+  const user = initializeFirebase().auth?.currentUser;
+  if (!user || user.uid !== userId) throw new Error('Sign in to submit battle code.');
+  const idToken = await user.getIdToken();
+  const response = await fetch('/api/battles/submit', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${idToken}`,
+    },
+    body: JSON.stringify({ battleId, code, language }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data?.error || `Battle submission failed (${response.status}).`);
+  if (data.success !== true || !Number.isInteger(data.passed) || !Number.isInteger(data.total)
+    || ![null, 'WIN', 'LOSS', 'DRAW'].includes(data.result)) {
+    throw new Error('Battle service returned an invalid submission response.');
   }
+  return {
+    passed: data.passed,
+    total: data.total,
+    verdict: data.result === 'WIN'
+      ? 'Accepted'
+      : data.result === 'LOSS'
+        ? 'Wrong Answer'
+        : data.result === 'DRAW'
+          ? 'Draw'
+          : 'Submitted — waiting for opponent',
+  };
 }
-
 export async function fetchMatchHistory(userId: string): Promise<MatchRecord[]> {
   const { firestore: db } = initializeFirebase();
   if (!db) return [];
