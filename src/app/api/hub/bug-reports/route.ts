@@ -104,11 +104,25 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
+    const rl = rateLimit(auth.uid, request);
+    if (rl) return rl;
+
     const body = await request.json();
     const { id, status, assignedTo, resolution } = body;
 
-    if (!id) {
+    if (!id || typeof id !== 'string') {
       return NextResponse.json({ error: 'Missing report id' }, { status: 400 });
+    }
+
+    const allowedStatuses = ['open', 'in_progress', 'resolved', 'closed', 'spam', 'duplicate'];
+    if (status !== undefined && !allowedStatuses.includes(status)) {
+      return NextResponse.json({ error: 'Invalid status' }, { status: 400 });
+    }
+    if (assignedTo !== undefined && assignedTo !== null && (typeof assignedTo !== 'string' || assignedTo.length > 128)) {
+      return NextResponse.json({ error: 'Invalid assignedTo' }, { status: 400 });
+    }
+    if (resolution !== undefined && resolution !== null && (typeof resolution !== 'string' || resolution.length > 2000)) {
+      return NextResponse.json({ error: 'Invalid resolution' }, { status: 400 });
     }
 
     const db = getAdminFirestore();
@@ -120,8 +134,8 @@ export async function PUT(request: NextRequest) {
 
     const update: Record<string, any> = { updatedAt: FieldValue.serverTimestamp() };
     if (status) update.status = status;
-    if (assignedTo) update.assignedTo = assignedTo;
-    if (resolution) update.resolution = resolution;
+    if (assignedTo !== undefined) update.assignedTo = assignedTo;
+    if (resolution !== undefined) update.resolution = resolution;
     if (status === 'resolved') update.resolvedAt = FieldValue.serverTimestamp();
 
     if (status === 'spam') {
@@ -163,9 +177,12 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
+    const rl = rateLimit(auth.uid, request);
+    if (rl) return rl;
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
-    if (!id) {
+    if (!id || typeof id !== 'string') {
       return NextResponse.json({ error: 'Missing report id' }, { status: 400 });
     }
 

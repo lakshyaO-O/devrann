@@ -88,10 +88,18 @@ export async function PUT(request: NextRequest) {
     const auth = await authenticateRequest(request, true);
     if (isResponse(auth)) return auth;
 
+    const rl = rateLimit(auth.uid, request);
+    if (rl) return rl;
+
     const body = await request.json();
     const { id, ...fields } = body;
-    if (!id) {
+    if (!id || typeof id !== 'string') {
       return NextResponse.json({ error: 'Missing event id' }, { status: 400 });
+    }
+
+    const parsed = eventSchema.partial().safeParse(fields);
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 400 });
     }
 
     const db = getAdminFirestore();
@@ -101,7 +109,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Event not found' }, { status: 404 });
     }
 
-    await ref.update({ ...fields, updatedAt: FieldValue.serverTimestamp() });
+    await ref.update({ ...parsed.data, updatedAt: FieldValue.serverTimestamp() });
 
     await createAuditLog({
       action: 'event.updated',
@@ -122,6 +130,9 @@ export async function DELETE(request: NextRequest) {
   try {
     const auth = await authenticateRequest(request, true);
     if (isResponse(auth)) return auth;
+
+    const rl = rateLimit(auth.uid, request);
+    if (rl) return rl;
 
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');

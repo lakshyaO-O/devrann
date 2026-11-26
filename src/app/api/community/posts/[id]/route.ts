@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminAuth, getAdminFirestore } from '@/firebase/admin';
 import { FieldValue } from 'firebase-admin/firestore';
+import { checkRateLimit, enforceSharedRateLimit, rateLimitResponse } from '@/lib/rate-limit';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const rateCheck = checkRateLimit('anonymous', request, { windowMs: 60_000, maxRequests: 120 });
+    if (!rateCheck.allowed) return rateLimitResponse(rateCheck.retryAfterMs);
+
     const { id } = await params;
     const db = getAdminFirestore();
     const postRef = db.collection('communityPosts').doc(id);
@@ -44,6 +48,9 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     }
 
     const uid = decodedToken.uid;
+    const limited = await enforceSharedRateLimit(uid, 'community.post.delete', { windowMs: 60_000, maxRequests: 20 });
+    if (limited) return limited;
+
     const db = getAdminFirestore();
     const postRef = db.collection('communityPosts').doc(id);
     const postSnap = await postRef.get();
@@ -82,6 +89,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
 
     const uid = decodedToken.uid;
+    const limited = await enforceSharedRateLimit(uid, 'community.post.update', { windowMs: 60_000, maxRequests: 20 });
+    if (limited) return limited;
+
     const db = getAdminFirestore();
     const postRef = db.collection('communityPosts').doc(id);
     const postSnap = await postRef.get();
@@ -96,12 +106,21 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
 
     const body = await request.json();
-    const allowedFields = ['title', 'content', 'code', 'codeLanguage', 'tags'];
+    const allowedFields = ['title', 'content', 'code', 'codeLanguage', 'tags'] as const;
     const updates: Record<string, any> = { updatedAt: FieldValue.serverTimestamp(), isEdited: true };
 
     for (const field of allowedFields) {
-      if (body[field] !== undefined) {
-        updates[field] = body[field];
+      const value = body[field];
+      if (value === undefined) continue;
+      if (field === 'tags') {
+        if (!Array.isArray(value) || value.length > 10 || value.some((t) => typeof t !== 'string' || t.length > 30)) {
+          return NextResponse.json({ error: 'Invalid tags' }, { status: 400 });
+        }
+        updates[field] = value;
+      } else if (typeof value === 'string' && value.length <= 10000) {
+        updates[field] = value;
+      } else {
+        return NextResponse.json({ error: `Invalid ${field}` }, { status: 400 });
       }
     }
 

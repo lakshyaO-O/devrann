@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limit';
 
 interface BackendStatus {
   configured: boolean;
@@ -88,8 +89,10 @@ async function checkPiston(): Promise<BackendStatus> {
   }
 }
 
-export async function GET(_request: NextRequest) {
+export async function GET(request: NextRequest) {
   try {
+    const rateCheck = checkRateLimit('anonymous', request, { windowMs: 60_000, maxRequests: 30 });
+    if (!rateCheck.allowed) return rateLimitResponse(rateCheck.retryAfterMs);
     const [judge0, piston] = await Promise.all([checkJudge0(), checkPiston()]);
 
     const result: HealthResult = {

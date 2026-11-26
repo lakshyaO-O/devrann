@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminAuth, getAdminFirestore } from '@/firebase/admin';
 import { FieldValue } from 'firebase-admin/firestore';
+import { checkRateLimit, enforceSharedRateLimit, rateLimitResponse } from '@/lib/rate-limit';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const rateCheck = checkRateLimit('anonymous', request, { windowMs: 60_000, maxRequests: 120 });
+    if (!rateCheck.allowed) return rateLimitResponse(rateCheck.retryAfterMs);
+
     const { id } = await params;
     const db = getAdminFirestore();
     const postRef = db.collection('communityPosts').doc(id);
@@ -42,10 +46,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
 
     const uid = decodedToken.uid;
+    const limited = await enforceSharedRateLimit(uid, 'community.comment.create', { windowMs: 60_000, maxRequests: 30 });
+    if (limited) return limited;
+
     const { content, parentId } = await request.json();
 
-    if (!content) {
-      return NextResponse.json({ error: 'Missing content' }, { status: 400 });
+    if (typeof content !== 'string' || !content.trim() || content.length > 5000) {
+      return NextResponse.json({ error: 'Invalid content' }, { status: 400 });
+    }
+    if (parentId !== undefined && parentId !== null && typeof parentId !== 'string') {
+      return NextResponse.json({ error: 'Invalid parentId' }, { status: 400 });
     }
 
     const db = getAdminFirestore();

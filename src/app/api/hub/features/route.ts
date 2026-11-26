@@ -94,11 +94,25 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
+    const rl = rateLimit(auth.uid, request);
+    if (rl) return rl;
+
     const body = await request.json();
     const { id, status, adminNotes, duplicateOf } = body;
 
-    if (!id) {
+    if (!id || typeof id !== 'string') {
       return NextResponse.json({ error: 'Missing id' }, { status: 400 });
+    }
+
+    const allowedStatuses = ['planned', 'building', 'testing', 'released', 'rejected', 'duplicate'];
+    if (status !== undefined && !allowedStatuses.includes(status)) {
+      return NextResponse.json({ error: 'Invalid status' }, { status: 400 });
+    }
+    if (adminNotes !== undefined && (typeof adminNotes !== 'string' || adminNotes.length > 2000)) {
+      return NextResponse.json({ error: 'Invalid adminNotes' }, { status: 400 });
+    }
+    if (duplicateOf !== undefined && duplicateOf !== null && typeof duplicateOf !== 'string') {
+      return NextResponse.json({ error: 'Invalid duplicateOf' }, { status: 400 });
     }
 
     const db = getAdminFirestore();

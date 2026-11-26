@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminAuth, getAdminFirestore } from '@/firebase/admin';
 import { FieldValue } from 'firebase-admin/firestore';
+import { checkRateLimit, enforceSharedRateLimit, rateLimitResponse } from '@/lib/rate-limit';
 
 export async function GET(request: NextRequest) {
   try {
+    const rateCheck = checkRateLimit('anonymous', request, { windowMs: 60_000, maxRequests: 60 });
+    if (!rateCheck.allowed) return rateLimitResponse(rateCheck.retryAfterMs);
+
     const { searchParams } = new URL(request.url);
     const category = searchParams.get('category');
 
@@ -42,9 +46,15 @@ export async function POST(request: NextRequest) {
     }
 
     const uid = decodedToken.uid;
+    const limited = await enforceSharedRateLimit(uid, 'shop.purchase', {
+      windowMs: 60_000,
+      maxRequests: 10,
+    });
+    if (limited) return limited;
+
     const { itemId } = await request.json();
 
-    if (!itemId) {
+    if (typeof itemId !== 'string' || !itemId.trim()) {
       return NextResponse.json({ error: 'Missing itemId' }, { status: 400 });
     }
 

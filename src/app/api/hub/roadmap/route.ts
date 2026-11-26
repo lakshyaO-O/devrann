@@ -78,23 +78,31 @@ export async function PUT(request: NextRequest) {
     const auth = await authenticateRequest(request, true, 'content.manage' as any);
     if (isResponse(auth)) return auth;
 
+    const rl = rateLimit(auth.uid, request);
+    if (rl) return rl;
+
     const body = await request.json();
     const { id, ...fields } = body;
 
-    if (!id) {
+    if (!id || typeof id !== 'string') {
       return NextResponse.json({ error: 'Missing roadmap item id' }, { status: 400 });
+    }
+
+    const parsed = roadmapItemSchema.partial().safeParse(fields);
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 400 });
     }
 
     const db = getAdminFirestore();
     await db.collection('roadmapItems').doc(id).update({
-      ...fields,
+      ...parsed.data,
       updatedAt: FieldValue.serverTimestamp(),
     });
 
     return NextResponse.json({ success: true });
   } catch (err: any) {
     console.error('[Roadmap PUT] Error:', err);
-    return NextResponse.json({ error: err?.message || 'Internal server message' }, { status: 500 });
+    return NextResponse.json({ error: err?.message || 'Internal server error' }, { status: 500 });
   }
 }
 
@@ -102,6 +110,9 @@ export async function DELETE(request: NextRequest) {
   try {
     const auth = await authenticateRequest(request, true, 'content.manage' as any);
     if (isResponse(auth)) return auth;
+
+    const rl = rateLimit(auth.uid, request);
+    if (rl) return rl;
 
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
@@ -122,6 +133,9 @@ export async function PATCH(request: NextRequest) {
   try {
     const auth = await authenticateRequest(request);
     if (isResponse(auth)) return auth;
+
+    const rl = rateLimit(auth.uid, request);
+    if (rl) return rl;
 
     const body = await request.json();
     const { id, action: patchAction } = body;

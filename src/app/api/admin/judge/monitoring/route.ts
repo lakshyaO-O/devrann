@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminAuth, getAdminFirestore } from '@/firebase/admin';
 import { hasPermission } from '@/types/admin';
 import type { AdminRole } from '@/types/admin';
+import { enforceSharedRateLimit } from '@/lib/rate-limit';
 
 async function verifyAndGetRole(request: NextRequest): Promise<{ uid: string; role: AdminRole; email: string } | NextResponse> {
   const authHeader = request.headers.get('Authorization');
@@ -53,6 +54,12 @@ export async function GET(request: NextRequest) {
     if (!hasPermission(auth.role, 'analytics.read')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
+
+    const limited = await enforceSharedRateLimit(auth.uid, 'admin.judge.monitoring.read', {
+      windowMs: 60_000,
+      maxRequests: 30,
+    });
+    if (limited) return limited;
 
     const db = getAdminFirestore();
 

@@ -73,11 +73,22 @@ export async function PUT(request: NextRequest) {
     const auth = await authenticateRequest(request, true, 'moderation.write');
     if (isResponse(auth)) return auth;
 
+    const rl = rateLimit(auth.uid, request);
+    if (rl) return rl;
+
     const body = await request.json();
     const { id, status, adminNotes } = body;
 
-    if (!id) {
+    if (!id || typeof id !== 'string') {
       return NextResponse.json({ error: 'Missing application id' }, { status: 400 });
+    }
+
+    const allowedStatuses = ['pending', 'approved', 'rejected', 'in_review'];
+    if (status !== undefined && !allowedStatuses.includes(status)) {
+      return NextResponse.json({ error: 'Invalid status' }, { status: 400 });
+    }
+    if (adminNotes !== undefined && adminNotes !== null && (typeof adminNotes !== 'string' || adminNotes.length > 2000)) {
+      return NextResponse.json({ error: 'Invalid adminNotes' }, { status: 400 });
     }
 
     const db = getAdminFirestore();
@@ -87,7 +98,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Application not found' }, { status: 404 });
     }
 
-    const update: Record<string, any> = {};
+    const update: Record<string, any> = { updatedAt: FieldValue.serverTimestamp() };
     if (status) update.status = status;
     if (adminNotes !== undefined) update.adminNotes = adminNotes;
 

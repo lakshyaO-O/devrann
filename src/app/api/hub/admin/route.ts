@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/firebase/admin';
-import { authenticateRequest, isResponse } from '@/lib/hub-utils';
+import { authenticateRequest, isResponse, rateLimit } from '@/lib/hub-utils';
 import { hasPermission } from '@/types/admin';
 
 export async function GET(request: NextRequest) {
   try {
     const auth = await authenticateRequest(request, true, 'analytics.read');
     if (isResponse(auth)) return auth;
+
+    const rl = rateLimit(auth.uid, request);
+    if (rl) return rl;
 
     const db = getAdminFirestore();
 

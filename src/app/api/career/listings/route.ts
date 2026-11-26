@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/firebase/admin';
+import { checkRateLimit, rateLimitResponse } from '@/lib/rate-limit';
 
 export async function GET(request: NextRequest) {
   try {
+    const rateCheck = checkRateLimit('anonymous', request, { windowMs: 60_000, maxRequests: 60 });
+    if (!rateCheck.allowed) return rateLimitResponse(rateCheck.retryAfterMs);
+
     const { searchParams } = new URL(request.url);
     const type = searchParams.get('type');
     const experienceLevel = searchParams.get('experienceLevel');
-    const skills = searchParams.get('skills')?.split(',').filter(Boolean);
-    const page = parseInt(searchParams.get('page') || '1', 10);
+    const skills = searchParams.get('skills')?.split(',').filter(Boolean).slice(0, 10);
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10) || 1);
     const limitCount = 20;
 
     const db = getAdminFirestore();

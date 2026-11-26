@@ -74,11 +74,22 @@ export async function PUT(request: NextRequest) {
     const auth = await authenticateRequest(request, true, 'moderation.write');
     if (isResponse(auth)) return auth;
 
+    const rl = rateLimit(auth.uid, request);
+    if (rl) return rl;
+
     const body = await request.json();
     const { id, status, assignedTo } = body;
 
-    if (!id) {
+    if (!id || typeof id !== 'string') {
       return NextResponse.json({ error: 'Missing id' }, { status: 400 });
+    }
+
+    const allowedStatuses = ['open', 'in_progress', 'resolved', 'closed', 'spam'];
+    if (status !== undefined && !allowedStatuses.includes(status)) {
+      return NextResponse.json({ error: 'Invalid status' }, { status: 400 });
+    }
+    if (assignedTo !== undefined && assignedTo !== null && (typeof assignedTo !== 'string' || assignedTo.length > 128)) {
+      return NextResponse.json({ error: 'Invalid assignedTo' }, { status: 400 });
     }
 
     const db = getAdminFirestore();
@@ -90,9 +101,16 @@ export async function PUT(request: NextRequest) {
 
     const update: Record<string, any> = { updatedAt: FieldValue.serverTimestamp() };
     if (status) update.status = status;
-    if (assignedTo) update.assignedTo = assignedTo;
+    if (assignedTo !== undefined) update.assignedTo = assignedTo;
 
     await ref.update(update);
+    await createAuditLog({
+      action: `contact.${status || 'updated'}`,
+      performedBy: auth.uid,
+      targetType: 'contactMessage',
+      targetId: id,
+      details: `Contact message ${status || 'updated'}`,
+    });
     return NextResponse.json({ success: true });
   } catch (err: any) {
     console.error('[Contact PUT] Error:', err);

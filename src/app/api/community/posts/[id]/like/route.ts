@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminAuth, getAdminFirestore } from '@/firebase/admin';
 import { FieldValue } from 'firebase-admin/firestore';
+import { enforceSharedRateLimit } from '@/lib/rate-limit';
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -19,6 +20,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
 
     const uid = decodedToken.uid;
+    const limited = await enforceSharedRateLimit(uid, 'community.post.like', { windowMs: 60_000, maxRequests: 60 });
+    if (limited) return limited;
+
     const db = getAdminFirestore();
     const postRef = db.collection('communityPosts').doc(id);
     const postSnap = await postRef.get();
