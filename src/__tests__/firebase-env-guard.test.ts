@@ -13,23 +13,36 @@ afterEach(() => {
 });
 
 describe('firebase env guard - server', () => {
-  it('rejects missing project id in preview', () => {
+  it('rejects missing PREVIEW_FIREBASE_* credentials in preview', () => {
     const errors = getServerFirebaseEnvErrors({
       VERCEL_ENV: 'preview',
-      FIREBASE_CLIENT_EMAIL: 'svc@example.iam.gserviceaccount.com',
-      FIREBASE_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----',
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: 'devrann-preview-test',
     });
-    expect(errors).toContain('Missing FIREBASE_PROJECT_ID in Preview');
-    expect(errors).toContain('Missing NEXT_PUBLIC_FIREBASE_PROJECT_ID in Preview');
+    expect(errors).toContain('Missing PREVIEW_FIREBASE_PROJECT_ID in Preview');
+    expect(errors).toContain('Missing PREVIEW_FIREBASE_CLIENT_EMAIL in Preview');
+    expect(errors).toContain('Missing PREVIEW_FIREBASE_PRIVATE_KEY in Preview');
+  });
+
+  it('rejects preview fallback to shared FIREBASE_* credentials', () => {
+    const errors = getServerFirebaseEnvErrors({
+      VERCEL_ENV: 'preview',
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: 'devrann-preview-test',
+      FIREBASE_PROJECT_ID: 'devrann-preview-test',
+      FIREBASE_CLIENT_EMAIL: 'shared@example.iam.gserviceaccount.com',
+      FIREBASE_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\nshared\n-----END PRIVATE KEY-----',
+    });
+    expect(errors).toContain('Missing PREVIEW_FIREBASE_PROJECT_ID in Preview');
+    expect(errors).toContain('Missing PREVIEW_FIREBASE_CLIENT_EMAIL in Preview');
+    expect(errors).toContain('Missing PREVIEW_FIREBASE_PRIVATE_KEY in Preview');
   });
 
   it('rejects client/server project id mismatch in preview', () => {
     const errors = getServerFirebaseEnvErrors({
       VERCEL_ENV: 'preview',
-      FIREBASE_PROJECT_ID: 'preview-project',
+      PREVIEW_FIREBASE_PROJECT_ID: 'devrann-preview-test',
       NEXT_PUBLIC_FIREBASE_PROJECT_ID: 'other-project',
-      FIREBASE_CLIENT_EMAIL: 'svc@example.iam.gserviceaccount.com',
-      FIREBASE_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----',
+      PREVIEW_FIREBASE_CLIENT_EMAIL: 'svc@example.iam.gserviceaccount.com',
+      PREVIEW_FIREBASE_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----',
     });
     expect(errors).toContain('Preview Firebase project ID mismatch between client and server');
   });
@@ -37,21 +50,35 @@ describe('firebase env guard - server', () => {
   it('rejects preview targeting known production project', () => {
     const errors = getServerFirebaseEnvErrors({
       VERCEL_ENV: 'preview',
-      FIREBASE_PROJECT_ID: KNOWN_PRODUCTION_FIREBASE_PROJECT_ID,
+      PREVIEW_FIREBASE_PROJECT_ID: KNOWN_PRODUCTION_FIREBASE_PROJECT_ID,
       NEXT_PUBLIC_FIREBASE_PROJECT_ID: KNOWN_PRODUCTION_FIREBASE_PROJECT_ID,
-      FIREBASE_CLIENT_EMAIL: 'svc@example.iam.gserviceaccount.com',
-      FIREBASE_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----',
+      PREVIEW_FIREBASE_CLIENT_EMAIL: 'svc@example.iam.gserviceaccount.com',
+      PREVIEW_FIREBASE_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----',
     });
     expect(errors).toContain('Preview Firebase project cannot target the production project');
   });
 
-  it('accepts correct isolated preview project', () => {
+  it('rejects preview admin project other than devrann-preview-test', () => {
     const errors = getServerFirebaseEnvErrors({
       VERCEL_ENV: 'preview',
-      FIREBASE_PROJECT_ID: 'devrann-preview-test',
+      PREVIEW_FIREBASE_PROJECT_ID: 'some-other-preview',
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: 'some-other-preview',
+      PREVIEW_FIREBASE_CLIENT_EMAIL: 'svc@example.iam.gserviceaccount.com',
+      PREVIEW_FIREBASE_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----',
+    });
+    expect(errors).toContain('Preview Firebase Admin project must be devrann-preview-test');
+  });
+
+  it('accepts isolated preview project with dedicated PREVIEW_FIREBASE_* credentials', () => {
+    const errors = getServerFirebaseEnvErrors({
+      VERCEL_ENV: 'preview',
+      PREVIEW_FIREBASE_PROJECT_ID: 'devrann-preview-test',
       NEXT_PUBLIC_FIREBASE_PROJECT_ID: 'devrann-preview-test',
-      FIREBASE_CLIENT_EMAIL: 'svc@example.iam.gserviceaccount.com',
-      FIREBASE_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----',
+      PREVIEW_FIREBASE_CLIENT_EMAIL: 'svc@example.iam.gserviceaccount.com',
+      PREVIEW_FIREBASE_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----',
+      FIREBASE_PROJECT_ID: 'codexarena-4990f',
+      FIREBASE_CLIENT_EMAIL: 'prod@example.iam.gserviceaccount.com',
+      FIREBASE_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\nprod\n-----END PRIVATE KEY-----',
     });
     expect(errors).toEqual([]);
   });

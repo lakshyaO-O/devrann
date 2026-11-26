@@ -8,12 +8,28 @@ let lastInitError: string | null = null;
 
 type ValidationError = { message: string; variable?: string };
 
+function isPreviewEnv(): boolean {
+  return process.env.VERCEL_ENV === 'preview';
+}
+
+function getAdminCredentials() {
+  if (isPreviewEnv()) {
+    return {
+      projectId: process.env.PREVIEW_FIREBASE_PROJECT_ID || '',
+      clientEmail: process.env.PREVIEW_FIREBASE_CLIENT_EMAIL || '',
+      privateKey: process.env.PREVIEW_FIREBASE_PRIVATE_KEY || '',
+    };
+  }
+  return {
+    projectId: process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || '',
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL || '',
+    privateKey: process.env.FIREBASE_PRIVATE_KEY || '',
+  };
+}
+
 function validateEnv(): ValidationError[] {
   const errors: ValidationError[] = [];
-
-  const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID;
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+  const { projectId, clientEmail, privateKey } = getAdminCredentials();
 
   const guardErrors = getServerFirebaseEnvErrors({
     NODE_ENV: process.env.NODE_ENV,
@@ -22,26 +38,30 @@ function validateEnv(): ValidationError[] {
     NEXT_PUBLIC_FIREBASE_PROJECT_ID: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
     FIREBASE_CLIENT_EMAIL: process.env.FIREBASE_CLIENT_EMAIL,
     FIREBASE_PRIVATE_KEY: process.env.FIREBASE_PRIVATE_KEY,
+    PREVIEW_FIREBASE_PROJECT_ID: process.env.PREVIEW_FIREBASE_PROJECT_ID,
+    PREVIEW_FIREBASE_CLIENT_EMAIL: process.env.PREVIEW_FIREBASE_CLIENT_EMAIL,
+    PREVIEW_FIREBASE_PRIVATE_KEY: process.env.PREVIEW_FIREBASE_PRIVATE_KEY,
   });
 
   for (const message of guardErrors) {
     errors.push({ message });
   }
 
-  if (!projectId) {
-    errors.push({ message: 'Missing FIREBASE_PROJECT_ID (or NEXT_PUBLIC_FIREBASE_PROJECT_ID)', variable: 'FIREBASE_PROJECT_ID' });
+  if (isPreviewEnv()) {
+    if (!projectId) errors.push({ message: 'Missing PREVIEW_FIREBASE_PROJECT_ID', variable: 'PREVIEW_FIREBASE_PROJECT_ID' });
+    if (!clientEmail) errors.push({ message: 'Missing PREVIEW_FIREBASE_CLIENT_EMAIL', variable: 'PREVIEW_FIREBASE_CLIENT_EMAIL' });
+    if (!privateKey) errors.push({ message: 'Missing PREVIEW_FIREBASE_PRIVATE_KEY', variable: 'PREVIEW_FIREBASE_PRIVATE_KEY' });
+  } else {
+    if (!projectId) errors.push({ message: 'Missing FIREBASE_PROJECT_ID (or NEXT_PUBLIC_FIREBASE_PROJECT_ID)', variable: 'FIREBASE_PROJECT_ID' });
+    if (!clientEmail) errors.push({ message: 'Missing FIREBASE_CLIENT_EMAIL', variable: 'FIREBASE_CLIENT_EMAIL' });
+    if (!privateKey) errors.push({ message: 'Missing FIREBASE_PRIVATE_KEY', variable: 'FIREBASE_PRIVATE_KEY' });
   }
 
-  if (!clientEmail) {
-    errors.push({ message: 'Missing FIREBASE_CLIENT_EMAIL', variable: 'FIREBASE_CLIENT_EMAIL' });
-  } else if (!clientEmail.includes('@') || !clientEmail.includes('.')) {
-    errors.push({ message: 'Invalid FIREBASE_CLIENT_EMAIL format', variable: 'FIREBASE_CLIENT_EMAIL' });
+  if (clientEmail && (!clientEmail.includes('@') || !clientEmail.includes('.'))) {
+    errors.push({ message: `Invalid ${isPreviewEnv() ? 'PREVIEW_FIREBASE_CLIENT_EMAIL' : 'FIREBASE_CLIENT_EMAIL'} format` });
   }
-
-  if (!privateKey) {
-    errors.push({ message: 'Missing FIREBASE_PRIVATE_KEY', variable: 'FIREBASE_PRIVATE_KEY' });
-  } else if (!privateKey.includes('-----BEGIN PRIVATE KEY-----') || !privateKey.includes('-----END PRIVATE KEY-----')) {
-    errors.push({ message: 'Invalid FIREBASE_PRIVATE_KEY format', variable: 'FIREBASE_PRIVATE_KEY' });
+  if (privateKey && (!privateKey.includes('-----BEGIN PRIVATE KEY-----') || !privateKey.includes('-----END PRIVATE KEY-----'))) {
+    errors.push({ message: `Invalid ${isPreviewEnv() ? 'PREVIEW_FIREBASE_PRIVATE_KEY' : 'FIREBASE_PRIVATE_KEY'} format` });
   }
 
   const unique = new Map<string, ValidationError>();
@@ -50,7 +70,7 @@ function validateEnv(): ValidationError[] {
 }
 
 function getProjectId(): string {
-  return process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || '';
+  return getAdminCredentials().projectId;
 }
 
 function logErrors(errors: ValidationError[]): void {
@@ -71,9 +91,7 @@ export function initializeAdmin(): boolean {
     return false;
   }
 
-  const projectId = getProjectId();
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL!;
-  const privateKey = process.env.FIREBASE_PRIVATE_KEY!;
+  const { projectId, clientEmail, privateKey } = getAdminCredentials();
 
   try {
     if (getApps().length === 0) {

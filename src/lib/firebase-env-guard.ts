@@ -15,6 +15,9 @@ export interface ServerFirebaseEnvInput {
   NEXT_PUBLIC_FIREBASE_PROJECT_ID?: string;
   FIREBASE_CLIENT_EMAIL?: string;
   FIREBASE_PRIVATE_KEY?: string;
+  PREVIEW_FIREBASE_PROJECT_ID?: string;
+  PREVIEW_FIREBASE_CLIENT_EMAIL?: string;
+  PREVIEW_FIREBASE_PRIVATE_KEY?: string;
 }
 
 export interface ClientFirebaseEnvInput {
@@ -107,22 +110,39 @@ export function getServerFirebaseEnvErrors(input: ServerFirebaseEnvInput): strin
   const publicProjectId = normalize(input.NEXT_PUBLIC_FIREBASE_PROJECT_ID);
   const clientEmail = normalize(input.FIREBASE_CLIENT_EMAIL);
   const privateKey = normalize(input.FIREBASE_PRIVATE_KEY);
+  const previewProjectId = normalize(input.PREVIEW_FIREBASE_PROJECT_ID);
+  const previewClientEmail = normalize(input.PREVIEW_FIREBASE_CLIENT_EMAIL);
+  const previewPrivateKey = normalize(input.PREVIEW_FIREBASE_PRIVATE_KEY);
   const isPreview = vercelEnv === 'preview';
   const isProduction = vercelEnv === 'production' || (!vercelEnv && nodeEnv === 'production');
 
   if (isPreview) {
-    if (!projectId) errors.push('Missing FIREBASE_PROJECT_ID in Preview');
+    if (!previewProjectId) errors.push('Missing PREVIEW_FIREBASE_PROJECT_ID in Preview');
+    if (!previewClientEmail) errors.push('Missing PREVIEW_FIREBASE_CLIENT_EMAIL in Preview');
+    if (!previewPrivateKey) errors.push('Missing PREVIEW_FIREBASE_PRIVATE_KEY in Preview');
     if (!publicProjectId) errors.push('Missing NEXT_PUBLIC_FIREBASE_PROJECT_ID in Preview');
-    if (projectId && publicProjectId && projectId !== publicProjectId) {
+    if (previewProjectId && publicProjectId && previewProjectId !== publicProjectId) {
       errors.push('Preview Firebase project ID mismatch between client and server');
     }
-    const effectiveProjectId = projectId || publicProjectId;
+    const effectiveProjectId = previewProjectId || publicProjectId;
     if (effectiveProjectId === KNOWN_PRODUCTION_FIREBASE_PROJECT_ID) {
       errors.push('Preview Firebase project cannot target the production project');
     }
+    if (previewProjectId && previewProjectId !== 'devrann-preview-test') {
+      errors.push('Preview Firebase Admin project must be devrann-preview-test');
+    }
+    if (previewClientEmail && (!previewClientEmail.includes('@') || !previewClientEmail.includes('.'))) {
+      errors.push('Invalid PREVIEW_FIREBASE_CLIENT_EMAIL format');
+    }
+    if (previewPrivateKey) {
+      if (!previewPrivateKey.includes('-----BEGIN PRIVATE KEY-----') || !previewPrivateKey.includes('-----END PRIVATE KEY-----')) {
+        errors.push('Invalid PREVIEW_FIREBASE_PRIVATE_KEY format');
+      }
+    }
+    return errors;
   }
 
-  if (isProduction || isPreview) {
+  if (isProduction) {
     if (!projectId && !publicProjectId) errors.push('Missing Firebase project ID');
   } else {
     // Local/dev/test: preserve existing flexibility, but if partially configured validate basics.
@@ -135,9 +155,7 @@ export function getServerFirebaseEnvErrors(input: ServerFirebaseEnvInput): strin
     errors.push('Invalid FIREBASE_CLIENT_EMAIL format');
   }
   if (privateKey) {
-    if (!privateKey.includes('-----BEGIN PRIVATE KEY-----')) {
-      errors.push('Invalid FIREBASE_PRIVATE_KEY format');
-    } else if (!privateKey.includes('-----END PRIVATE KEY-----')) {
+    if (!privateKey.includes('-----BEGIN PRIVATE KEY-----') || !privateKey.includes('-----END PRIVATE KEY-----')) {
       errors.push('Invalid FIREBASE_PRIVATE_KEY format');
     }
   }
