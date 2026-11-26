@@ -12,6 +12,8 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useAppStore } from '@/store/app-store';
+import { initializeFirebase } from '@/firebase';
+import { useToast } from '@/hooks/use-toast';
 import { lessons, totalLessons, type LessonData } from '@/data/lessons';
 import { LessonViewer } from '@/components/learning/LessonViewer';
 
@@ -37,8 +39,9 @@ function LessonIcon({ name, className }: { name: string; className?: string }) {
 
 export function CompleteRoadmap({ onStartLesson }: CompleteRoadmapProps) {
   const {
-    state, completeLessonFull, addXp, addCoins, markLessonRead, markQuizPassed, markChallengePassed,
+    state, updateBeginnerState,
   } = useAppStore();
+  const { toast } = useToast();
   const { beginner } = state;
   const [expandedLesson, setExpandedLesson] = useState<number | null>(null);
   const [activeLesson, setActiveLesson] = useState<LessonData | null>(null);
@@ -66,10 +69,42 @@ export function CompleteRoadmap({ onStartLesson }: CompleteRoadmapProps) {
     onStartLesson?.(lesson);
   };
 
-  const handleLessonComplete = (lessonId: number) => {
+  const handleLessonComplete = async (lessonId: number, answers: number[]) => {
     const lesson = lessons.find(l => l.id === lessonId);
-    if (!lesson) return;
-    completeLessonFull(lessonId, lesson.xpReward, lesson.coinReward);
+    const user = initializeFirebase().auth?.currentUser;
+    if (!lesson || !user) throw new Error('Sign in to claim lesson rewards.');
+    const response = await fetch('/api/learning/lesson-completion', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${await user.getIdToken()}`,
+      },
+      body: JSON.stringify({ lessonId, answers }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || 'Unable to confirm lesson rewards.');
+    const previousProgress = beginner.lessonProgress[lessonId];
+    updateBeginnerState({
+      lessonsCompleted: beginner.lessonsCompleted.includes(lessonId)
+        ? beginner.lessonsCompleted
+        : [...beginner.lessonsCompleted, lessonId],
+      currentLesson: Math.max(beginner.currentLesson, lessonId + 1),
+      xp: result.xp,
+      coins: result.coins,
+      lessonProgress: {
+        ...beginner.lessonProgress,
+        [lessonId]: {
+          ...previousProgress,
+          read: true,
+          quizPassed: true,
+          xpAwarded: true,
+          completedAt: previousProgress?.completedAt || new Date().toISOString(),
+        },
+      },
+    });
+    if (result.alreadyCompleted) {
+      toast({ title: 'Lesson already completed', description: 'Your saved progress has been restored.' });
+    }
     setShowCelebration(lessonId);
     setTimeout(() => setShowCelebration(null), 3000);
   };

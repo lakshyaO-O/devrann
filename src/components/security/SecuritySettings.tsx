@@ -1,78 +1,89 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import React, { useEffect, useState } from 'react';
+import { reload, sendEmailVerification, sendPasswordResetEmail } from 'firebase/auth';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from '@/components/ui/table';
-import { initializeFirebase } from '@/firebase';
-import {
-  collection, query, orderBy, limit, getDocs, doc, getDoc, updateDoc,
-} from 'firebase/firestore';
-import type { QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
-import { sendEmailVerification } from 'firebase/auth';
-import { useUser } from '@/firebase/auth/use-user';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/firebase/provider';
-import { cn } from '@/lib/utils';
+import { useUser } from '@/firebase/auth/use-user';
+import { useToast } from '@/hooks/use-toast';
 import {
-  Shield, Mail, Smartphone, History, LogOut, AlertTriangle,
-  CheckCircle, XCircle, Loader2, Clock, Monitor, Globe, Send,
+  CheckCircle, KeyRound, Loader2, Mail, Shield, ShieldCheck, XCircle,
 } from 'lucide-react';
-import { LoginHistoryEntry } from '@/app/lib/types';
+
+const PROVIDER_NAMES: Record<string, string> = {
+  'google.com': 'Google',
+  'password': 'Email and password',
+  'github.com': 'GitHub',
+  'apple.com': 'Apple',
+  'microsoft.com': 'Microsoft',
+  'facebook.com': 'Facebook',
+};
 
 export function SecuritySettings() {
   const { user } = useUser();
   const auth = useAuth();
+  const { toast } = useToast();
   const [sendingVerification, setSendingVerification] = useState(false);
-  const [loginHistory, setLoginHistory] = useState<LoginHistoryEntry[]>([]);
-  const [sessions, setSessions] = useState<any[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(true);
-  const [profileData, setProfileData] = useState<any>(null);
-
-  const loadData = useCallback(async () => {
-    try {
-      const { firestore: db } = initializeFirebase();
-      if (!db || !user) { setLoadingHistory(false); return; }
-
-      const userSnap = await getDoc(doc(db, 'users', user.uid));
-      if (userSnap.exists()) setProfileData(userSnap.data());
-
-      const historySnap = await getDocs(
-        query(collection(db, 'users', user.uid, 'loginHistory'), orderBy('timestamp', 'desc'), limit(20))
-      );
-      setLoginHistory(historySnap.docs.map((d: QueryDocumentSnapshot<DocumentData>) => ({ id: d.id, ...d.data() }) as LoginHistoryEntry));
-
-      const sessionsSnap = await getDocs(
-        query(collection(db, 'users', user.uid, 'sessions'), orderBy('lastActive', 'desc'), limit(10))
-      );
-      setSessions(sessionsSnap.docs.map((d: QueryDocumentSnapshot<DocumentData>) => ({ id: d.id, ...d.data() })));
-
-      setLoadingHistory(false);
-    } catch { setLoadingHistory(false); }
-  }, [user]);
+  const [sendingReset, setSendingReset] = useState(false);
+  const [emailVerified, setEmailVerified] = useState(user?.emailVerified ?? false);
+  const connectedProviders = [...new Set(user?.providerData.map((provider) =>
+    PROVIDER_NAMES[provider.providerId] || provider.providerId,
+  ) ?? [])];
+  const hasPasswordProvider = user?.providerData.some((provider) => provider.providerId === 'password') ?? false;
 
   useEffect(() => {
-    if (!user) return;
-    loadData();
-  }, [user, loadData]);
+    setEmailVerified(user?.emailVerified ?? false);
+  }, [user?.emailVerified]);
 
   const handleSendVerification = async () => {
-    if (!auth?.currentUser || sendingVerification) return;
+    if (!user || sendingVerification) return;
     setSendingVerification(true);
     try {
-      await sendEmailVerification(auth.currentUser);
-    } catch (e) { console.warn('[Security] Send verification failed:', e); }
-    setSendingVerification(false);
+      await sendEmailVerification(user);
+      toast({ title: 'Verification email sent', description: 'Check your inbox and follow the verification link.' });
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Unable to send verification email',
+        description: error instanceof Error ? error.message : 'Please try again.',
+      });
+    } finally {
+      setSendingVerification(false);
+    }
   };
 
-  const formatDate = (timestamp: string | any) => {
-    if (!timestamp) return 'N/A';
-    if (timestamp.toDate) return timestamp.toDate().toLocaleString();
-    return new Date(timestamp).toLocaleString();
+  const handlePasswordReset = async () => {
+    if (!auth || !user?.email || sendingReset) return;
+    setSendingReset(true);
+    try {
+      await sendPasswordResetEmail(auth, user.email);
+      toast({ title: 'Password reset email sent', description: `Follow the secure reset link sent to ${user.email}.` });
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Unable to send password reset',
+        description: error instanceof Error ? error.message : 'Please try again.',
+      });
+    } finally {
+      setSendingReset(false);
+    }
+  };
+
+  const refreshVerificationStatus = async () => {
+    if (!user) return;
+    try {
+      await reload(user);
+      setEmailVerified(user.emailVerified);
+      toast({ title: user.emailVerified ? 'Email verified' : 'Verification not detected', description: user.emailVerified ? 'Your account email is verified.' : 'After verifying, refresh this status again.' });
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Unable to refresh account status',
+        description: error instanceof Error ? error.message : 'Please try again.',
+      });
+    }
   };
 
   return (
@@ -80,37 +91,65 @@ export function SecuritySettings() {
       <Card className="bg-card/50 border-border">
         <CardHeader className="pb-3">
           <CardTitle className="text-lg font-headline font-bold flex items-center gap-2">
-            <Mail className="w-5 h-5 text-primary" />
-            Email Verification
+            <ShieldCheck className="w-5 h-5 text-primary" />
+            Sign-in methods
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              {user?.emailVerified ? (
-                <CheckCircle className="w-5 h-5 text-emerald-400" />
-              ) : (
-                <XCircle className="w-5 h-5 text-destructive" />
-              )}
-              <div>
-                <p className="text-sm font-medium">{user?.email}</p>
-                <p className="text-xs text-muted-foreground">
-                  {user?.emailVerified ? 'Verified' : 'Not verified'}
-                </p>
-              </div>
+        <CardContent className="space-y-4">
+          {connectedProviders.length ? (
+            <div className="flex flex-wrap gap-2">
+              {connectedProviders.map((provider) => (
+                <Badge key={provider} variant="outline">{provider}</Badge>
+              ))}
             </div>
-            {!user?.emailVerified && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleSendVerification}
-                disabled={sendingVerification}
-                className="gap-2"
-              >
-                {sendingVerification ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                Resend Verification
+          ) : (
+            <p className="text-sm text-muted-foreground">No connected sign-in provider was reported by Firebase.</p>
+          )}
+          {hasPasswordProvider && (
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t border-border pt-4">
+              <div>
+                <p className="text-sm font-medium">Password</p>
+                <p className="text-xs text-muted-foreground">Send a secure password reset link to your account email.</p>
+              </div>
+              <Button variant="outline" onClick={() => void handlePasswordReset()} disabled={sendingReset || !user?.email} className="gap-2">
+                {sendingReset ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+                Reset password
+              </Button>
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Provider linking and unlinking are not enabled here; changing sign-in methods requires a verified account flow.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-card/50 border-border">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg font-headline font-bold flex items-center gap-2">
+            <Mail className="w-5 h-5 text-primary" />
+            Email verification
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center gap-3 min-w-0">
+            {emailVerified
+              ? <CheckCircle className="w-5 h-5 text-emerald-400 shrink-0" />
+              : <XCircle className="w-5 h-5 text-destructive shrink-0" />}
+            <div className="min-w-0">
+              <p className="text-sm font-medium truncate">{user?.email || 'No email on this account'}</p>
+              <p className="text-xs text-muted-foreground">{emailVerified ? 'Verified' : 'Not verified'}</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {!emailVerified && (
+              <Button variant="outline" size="sm" onClick={() => void handleSendVerification()} disabled={sendingVerification || !user?.email} className="gap-2">
+                {sendingVerification ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+                Resend link
               </Button>
             )}
+            <Button variant="ghost" size="sm" onClick={() => void refreshVerificationStatus()}>
+              Refresh status
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -118,74 +157,14 @@ export function SecuritySettings() {
       <Card className="bg-card/50 border-border">
         <CardHeader className="pb-3">
           <CardTitle className="text-lg font-headline font-bold flex items-center gap-2">
-            <History className="w-5 h-5 text-primary" />
-            Login History
+            <Shield className="w-5 h-5 text-primary" />
+            Session security
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {loadingHistory ? (
-            <div className="text-center py-4"><Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" /></div>
-          ) : loginHistory.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">No login history recorded yet</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Method</TableHead>
-                  <TableHead>Device</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loginHistory.map((entry) => (
-                  <TableRow key={entry.id}>
-                    <TableCell className="text-xs">{formatDate(entry.timestamp)}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="text-[10px] capitalize">{entry.method}</Badge>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{entry.device || 'Unknown'}</TableCell>
-                    <TableCell>
-                      {entry.success ? (
-                        <CheckCircle className="w-4 h-4 text-emerald-400" />
-                      ) : (
-                        <XCircle className="w-4 h-4 text-destructive" />
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card className="bg-card/50 border-border">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg font-headline font-bold flex items-center gap-2">
-            <Monitor className="w-5 h-5 text-primary" />
-            Active Sessions
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {sessions.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">No active sessions</p>
-          ) : (
-            <div className="space-y-3">
-              {sessions.map((session) => (
-                <div key={session.id} className="flex items-center justify-between p-3 rounded-lg bg-muted/30">
-                  <div className="flex items-center gap-3">
-                    <Smartphone className="w-5 h-5 text-muted-foreground" />
-                    <div>
-                      <p className="text-sm font-medium">{session.device || 'Unknown device'}</p>
-                      <p className="text-xs text-muted-foreground">Last active: {formatDate(session.lastActive)}</p>
-                    </div>
-                  </div>
-                  <Badge variant="outline" className="text-[10px] capitalize">{session.status || 'active'}</Badge>
-                </div>
-              ))}
-            </div>
-          )}
+          <p className="text-sm text-muted-foreground">
+            DevRann does not currently expose a verified device-session inventory or remote session revocation control. Sign out from shared devices, and use your identity provider’s security page to review account sessions.
+          </p>
         </CardContent>
       </Card>
     </div>

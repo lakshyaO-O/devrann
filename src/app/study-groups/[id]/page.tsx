@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { doc, getDoc, collection, query, orderBy, getDocs, addDoc, serverTimestamp, onSnapshot, limit } from 'firebase/firestore';
+import { doc, getDoc, collection, query, orderBy, onSnapshot, limit } from 'firebase/firestore';
 import type { QueryDocumentSnapshot, DocumentData, DocumentSnapshot, QuerySnapshot } from 'firebase/firestore';
 import { initializeFirebase } from '@/firebase';
 import { useUser } from '@/firebase/auth/use-user';
@@ -21,6 +21,7 @@ import {
   Loader2, Globe, Lock, UserPlus, Check,
 } from 'lucide-react';
 import type { StudyGroup, StudyGroupMessage } from '@/types';
+import { sendMessage as sendGroupMessage } from '@/services/study-groups';
 
 export default function StudyGroupDetailPage() {
   const params = useParams();
@@ -55,33 +56,36 @@ export default function StudyGroupDetailPage() {
         })).then(setMembers);
       }
       setLoading(false);
+    }).catch((error) => {
+      console.error('[StudyGroup] Failed to load group.', error);
+      setLoading(false);
     });
 
     const q = query(collection(db, 'studyGroups', id, 'messages'), orderBy('createdAt', 'asc'), limit(100));
     const unsub = onSnapshot(q, (snapshot: QuerySnapshot<DocumentData>) => {
       setMessages(snapshot.docs.map((d: QueryDocumentSnapshot<DocumentData>) => ({ id: d.id, ...d.data() } as StudyGroupMessage)));
       setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    }, (error) => {
+      console.error('[StudyGroup] Failed to subscribe to messages.', error);
+      toast({ variant: 'destructive', title: 'Unable to load group messages' });
     });
     return () => unsub();
-  }, [id]);
+  }, [id, toast]);
 
   const handleSendMessage = async () => {
     if (!user || !group || !messageText.trim()) return;
     setSending(true);
     try {
-      const { firestore: db } = initializeFirebase();
-      if (!db) return;
-      const msgData = {
-        groupId: group.id,
+      await sendGroupMessage(group.id, {
         userId: user.uid,
-        username: user.displayName || 'Anonymous',
+        username: user.displayName || 'User',
         photoURL: user.photoURL || '',
         content: messageText,
-        createdAt: serverTimestamp(),
-      };
-      await addDoc(collection(db, 'studyGroups', group.id, 'messages'), msgData);
+      } as Omit<StudyGroupMessage, 'id' | 'createdAt' | 'groupId'>);
       setMessageText('');
-    } catch { toast({ variant: 'destructive', title: 'Failed to send message' }); }
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Failed to send message', description: error instanceof Error ? error.message : 'Please try again.' });
+    }
     setSending(false);
   };
 

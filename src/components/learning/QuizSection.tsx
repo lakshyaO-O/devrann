@@ -8,14 +8,14 @@ import type { QuizQuestion } from '@/data/lessons';
 
 interface QuizSectionProps {
   questions: QuizQuestion[];
-  onComplete: (passed: boolean, score: number) => void;
+  onComplete: (passed: boolean, score: number, answers: number[]) => void;
 }
 
 export function QuizSection({ questions, onComplete }: QuizSectionProps) {
   const [currentQ, setCurrentQ] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
   const [showResult, setShowResult] = useState(false);
-  const [answers, setAnswers] = useState<{ question: number; correct: boolean }[]>([]);
+  const [answers, setAnswers] = useState<{ question: number; correct: boolean; selected: number }[]>([]);
   const [finished, setFinished] = useState(false);
 
   const question = questions[currentQ];
@@ -29,16 +29,17 @@ export function QuizSection({ questions, onComplete }: QuizSectionProps) {
   const handleCheck = () => {
     if (selected === null) return;
     const correct = selected === question.correctIndex;
-    setAnswers(prev => [...prev, { question: currentQ, correct }]);
+    setAnswers(prev => [...prev, { question: currentQ, correct, selected }]);
     setShowResult(true);
   };
 
   const handleNext = () => {
     if (isLast) {
-      const score = answers.filter(a => a.correct).length;
+      const finalAnswers = [...answers, { question: currentQ, correct: selected === question.correctIndex, selected: selected! }];
+      const score = finalAnswers.filter(a => a.correct).length;
       const passed = score >= Math.ceil(questions.length * 0.6);
       setFinished(true);
-      onComplete(passed, score);
+      onComplete(passed, score, finalAnswers.map(answer => answer.selected));
     } else {
       setCurrentQ(prev => prev + 1);
       setSelected(null);

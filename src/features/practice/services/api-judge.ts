@@ -1,11 +1,9 @@
 'use client';
 
 import type { Judge, JudgeRequest, JudgeResult, JudgeProgress } from './judge';
-import { getAuth } from 'firebase/auth';
 import { initializeFirebase } from '@/firebase';
 
 const EXECUTE_URL = '/api/judge/execute';
-const HEALTH_URL = '/api/judge/health';
 
 async function getIdToken(): Promise<string> {
   const { auth } = initializeFirebase();
@@ -13,19 +11,6 @@ async function getIdToken(): Promise<string> {
   const user = auth.currentUser;
   if (!user) throw new Error('Not authenticated');
   return user.getIdToken();
-}
-
-async function checkJudgeAvailable(): Promise<boolean> {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-    const res = await fetch(HEALTH_URL, { signal: controller.signal });
-    clearTimeout(timeout);
-    const data = await res.json();
-    return !!(data.judge0?.reachable || data.piston?.reachable);
-  } catch {
-    return false;
-  }
 }
 
 async function callJudgeApi(request: JudgeRequest): Promise<JudgeResult> {
@@ -65,80 +50,17 @@ export function createApiJudge(): Judge {
       request: JudgeRequest,
       onProgress?: (progress: JudgeProgress) => void,
     ): Promise<JudgeResult> {
-      const totalCases = request.testCases.length;
-
-      const available = await checkJudgeAvailable();
-      if (!available) {
-        onProgress?.({
-          phase: 'error',
-          message: 'Code execution is temporarily unavailable',
-        });
-
-        return {
-          verdict: 'Compilation Error',
-          passedTestCases: 0,
-          totalTestCases: totalCases,
-          executionTimeMs: 0,
-          memoryUsedKb: -1,
-          compileTimeMs: -1,
-          codeSize: new TextEncoder().encode(request.code).length,
-          testCaseResults: [{
-            passed: false,
-            verdict: 'Compilation Error',
-            input: '',
-            expectedOutput: '',
-            actualOutput: '',
-            executionTimeMs: 0,
-            memoryUsedKb: -1,
-            exitCode: 1,
-            error: 'Online code execution is temporarily unavailable. Our dedicated execution infrastructure is being deployed. All learning features remain available.',
-          }],
-          stderr: 'Online code execution is temporarily unavailable.',
-        };
-      }
-
       onProgress?.({
         phase: 'compiling',
         message: 'Submitting code for execution...',
       });
 
-      try {
-        const result = await callJudgeApi(request);
-
-        onProgress?.({
-          phase: 'finished',
-          message: 'Execution complete',
-        });
-
-        return result;
-      } catch (err: any) {
-        onProgress?.({
-          phase: 'error',
-          message: err.message || 'Execution failed',
-        });
-
-        return {
-          verdict: 'Runtime Error',
-          passedTestCases: 0,
-          totalTestCases: totalCases,
-          executionTimeMs: 0,
-          memoryUsedKb: -1,
-          compileTimeMs: -1,
-          codeSize: new TextEncoder().encode(request.code).length,
-          testCaseResults: [{
-            passed: false,
-            verdict: 'Runtime Error',
-            input: '',
-            expectedOutput: '',
-            actualOutput: '',
-            executionTimeMs: 0,
-            memoryUsedKb: -1,
-            exitCode: 1,
-            error: err.message || 'Execution failed',
-          }],
-          stderr: err.message,
-        };
-      }
+      const result = await callJudgeApi(request);
+      onProgress?.({
+        phase: 'finished',
+        message: 'Execution complete',
+      });
+      return result;
     },
   };
 }

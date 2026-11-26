@@ -1,11 +1,22 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { Play, RotateCcw, CheckCircle2, XCircle, Loader2, Lightbulb } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { initializeFirebase } from '@/firebase';
+import '@/lib/monaco-loader';
 
-const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false });
+const MonacoEditor = dynamic(() => import('@monaco-editor/react'), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-full w-full items-center justify-center bg-[#1e1e1e]">
+      <Loader2 className="h-6 w-6 animate-spin text-primary" />
+    </div>
+  ),
+});
+
+const EDITOR_LOAD_TIMEOUT_MS = 15000;
 
 interface CodePlaygroundProps {
   starterCode: string;
@@ -22,12 +33,16 @@ interface CodePlaygroundProps {
 
 async function runCodeViaApi(code: string): Promise<string> {
   try {
-    const idToken = await fetch('/api/auth/session').then(r => r.text());
+    const { auth } = initializeFirebase();
+    const user = auth?.currentUser;
+    if (!user) return 'Error: Sign in to run code.';
+
+    const idToken = await user.getIdToken();
     const res = await fetch('/api/judge/execute', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${idToken}`,
+        Authorization: `Bearer ${idToken}`,
       },
       body: JSON.stringify({
         code,
@@ -37,8 +52,13 @@ async function runCodeViaApi(code: string): Promise<string> {
         memoryLimitKb: 512000,
       }),
     });
-    const data = await res.json();
-    if (!res.ok) return `Error: ${data.error || 'Execution failed'}`;
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (data?.code === 'JUDGE_UNAVAILABLE') {
+        return `Error: Code execution is unavailable right now. ${data.error || ''}`.trim();
+      }
+      return `Error: ${data.error || 'Execution failed'}`;
+    }
     return data.testCaseResults?.[0]?.actualOutput || data.compileError || 'Execution completed (no output)';
   } catch (err: any) {
     return `Error: ${err.message || 'Failed to execute code'}`;
@@ -64,6 +84,13 @@ export function CodePlayground({
   const [showHint, setShowHint] = useState(false);
   const [showSolution, setShowSolution] = useState(false);
   const [allPassed, setAllPassed] = useState(false);
+  const [editorState, setEditorState] = useState<'loading' | 'ready' | 'error'>('loading');
+
+  useEffect(() => {
+    if (editorState !== 'loading') return;
+    const timer = setTimeout(() => setEditorState('error'), EDITOR_LOAD_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [editorState]);
 
   useEffect(() => {
     setCode(starterCode);
@@ -177,20 +204,36 @@ export function CodePlayground({
       </div>
 
       <div style={{ height }} className="w-full">
-        <MonacoEditor
-          language={language}
-          value={code}
-          onChange={handleEditorChange}
-          theme="vs-dark"
-          options={{
-            minimap: { enabled: false },
-            fontSize: 14,
-            lineNumbers: 'on',
-            scrollBeyondLastLine: false,
-            padding: { top: 12 },
-            automaticLayout: true,
-          }}
-        />
+        {editorState === 'error' ? (
+          <div className="flex h-full flex-col bg-[#1e1e1e]">
+            <p className="border-b border-border/40 px-3 py-1.5 text-[11px] text-amber-400">
+              Code editor could not load. Falling back to a plain text editor.
+            </p>
+            <textarea
+              value={code}
+              onChange={(event) => handleEditorChange(event.target.value)}
+              spellCheck={false}
+              aria-label="Code editor"
+              className="flex-1 resize-none bg-transparent p-3 font-mono text-sm text-foreground outline-none"
+            />
+          </div>
+        ) : (
+          <MonacoEditor
+            language={language}
+            value={code}
+            onChange={handleEditorChange}
+            onMount={() => setEditorState('ready')}
+            theme="vs-dark"
+            options={{
+              minimap: { enabled: false },
+              fontSize: 14,
+              lineNumbers: 'on',
+              scrollBeyondLastLine: false,
+              padding: { top: 12 },
+              automaticLayout: true,
+            }}
+          />
+        )}
       </div>
 
       {showHint && hint && (

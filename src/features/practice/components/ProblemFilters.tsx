@@ -14,7 +14,7 @@ export const ALL_TOPICS = [
 ];
 
 const DIFFICULTIES = ['All', 'Easy', 'Medium', 'Hard'];
-const SORT_OPTIONS = ['Default', 'XP (Low)', 'XP (High)', 'Acceptance', 'Difficulty'] as const;
+const SORT_OPTIONS = ['Default', 'XP (Low)', 'XP (High)', 'Difficulty'] as const;
 
 interface ProblemFiltersProps {
   difficulty: string;
@@ -22,6 +22,7 @@ interface ProblemFiltersProps {
   sortBy: string;
   isBeginner: boolean;
   unlockedDifficulties: Difficulty[];
+  disableSort?: boolean;
   onDifficultyChange: (d: string) => void;
   onTopicChange: (t: string) => void;
   onSortChange: (s: string) => void;
@@ -30,7 +31,7 @@ interface ProblemFiltersProps {
 
 export function ProblemFilters({
   difficulty, topic, sortBy, isBeginner, unlockedDifficulties,
-  onDifficultyChange, onTopicChange, onSortChange, onClearTopic,
+  disableSort = false, onDifficultyChange, onTopicChange, onSortChange, onClearTopic,
 }: ProblemFiltersProps) {
   return (
     <div className="space-y-3 p-4 rounded-lg bg-muted/10 border border-border">
@@ -86,12 +87,14 @@ export function ProblemFilters({
             key={s}
             variant={sortBy === s ? 'secondary' : 'ghost'}
             size="sm"
+            disabled={disableSort}
             onClick={() => onSortChange(s)}
             className="text-xs h-7"
           >
             {s}
           </Button>
         ))}
+        {disableSort && <span className="text-xs text-muted-foreground">Title searches use title order.</span>}
       </div>
     </div>
   );

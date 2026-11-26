@@ -77,7 +77,7 @@ export default function AchievementsPage() {
           <p className="text-muted-foreground">Unlock achievements by reaching milestones across learning, arena, and practice.</p>
         </div>
         <Badge className="text-sm px-4 py-2 bg-primary/10 text-primary border-primary/30">
-          {achievedCount} / {ACHIEVEMENTS.length} Unlocked
+          {achievedCount} / {ACHIEVEMENTS.length} Milestones reached
         </Badge>
       </div>
 
@@ -113,9 +113,12 @@ export default function AchievementsPage() {
                     'text-[11px] font-medium uppercase tracking-wider',
                     achieved ? 'text-emerald-400' : 'text-muted-foreground'
                   )}>
-                    {achieved ? 'Unlocked' : achievement.requirement}
+                    {achieved ? 'Milestone reached' : achievement.requirement}
                   </span>
                 </div>
+                <p className="mt-2 text-center text-xs text-muted-foreground">
+                  Progress only; server-issued achievement unavailable.
+                </p>
               </CardContent>
             </Card>
           );

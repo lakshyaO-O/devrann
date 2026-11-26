@@ -62,6 +62,7 @@ export default function PrivacyPage() {
               <li><strong>Firebase</strong> (Google) — Authentication, database, and hosting</li>
               <li><strong>Google Analytics</strong> — Anonymous usage analytics (opt-out available)</li>
               <li><strong>Google AI (Gemini)</strong> — AI-powered code review and learning features</li>
+              <li><strong>Code execution</strong> — When the platform operator configures a Piston or Judge0 endpoint, code and test input are sent to that configured execution service when you run or submit code. Execution is unavailable when no endpoint is configured; DevRann does not silently select a public provider.</li>
               <li><strong>Vercel</strong> — Application hosting</li>
             </ul>
           </section>

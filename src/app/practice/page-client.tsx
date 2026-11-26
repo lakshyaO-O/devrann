@@ -22,7 +22,7 @@ import { useDailyChallenge, useWeeklyChallenge } from '@/hooks/use-daily-challen
 import { useProgressiveUnlocking } from '@/hooks/use-progressive-unlocking';
 import { useAppStore } from '@/store/app-store';
 import { getFullProblem } from '@/services/practice';
-import type { PracticeProblemDocument, Difficulty, ProblemTopic } from '@/types';
+import type { PracticeProblemDocument, PracticeProblemSummary, Difficulty, ProblemTopic } from '@/types';
 
 import { ALL_TOPICS } from '@/features/practice/components/ProblemFilters';
 
@@ -52,9 +52,9 @@ function PageSkeleton() {
 function ContinueCard({
   problem, progress, onStart,
 }: {
-  problem: PracticeProblemDocument;
+  problem: PracticeProblemSummary;
   progress: { lastSubmittedAt?: string };
-  onStart: (p: PracticeProblemDocument) => void;
+  onStart: (p: PracticeProblemSummary) => void;
 }) {
   const timeAgo = progress.lastSubmittedAt
     ? (() => {
@@ -110,8 +110,8 @@ function ContinueCard({
 function RecommendationCard({
   problem, onStart,
 }: {
-  problem: PracticeProblemDocument;
-  onStart: (p: PracticeProblemDocument) => void;
+  problem: PracticeProblemSummary;
+  onStart: (p: PracticeProblemSummary) => void;
 }) {
   const diffColor = problem.difficulty === 'Easy' ? 'text-emerald-400 border-emerald-500/20 bg-emerald-500/10'
     : problem.difficulty === 'Medium' ? 'text-yellow-400 border-yellow-500/20 bg-yellow-500/10'
@@ -245,7 +245,7 @@ export default function PracticePage() {
         const tb = b!.progress.lastSubmittedAt || '';
         return tb.localeCompare(ta);
       })
-      .slice(0, 6) as { problem: PracticeProblemDocument; progress: { lastSubmittedAt?: string } }[];
+      .slice(0, 6) as { problem: PracticeProblemSummary; progress: { lastSubmittedAt?: string } }[];
   }, [progress, problems]);
 
   const loading = problemsLoading || progressLoading || authLoading;
@@ -253,7 +253,7 @@ export default function PracticePage() {
 
   const searchParams = useSearchParams();
 
-  const handleStartProblem = useCallback(async (problem: PracticeProblemDocument | null) => {
+  const handleStartProblem = useCallback(async (problem: PracticeProblemSummary | null) => {
     if (!problem) return;
     if (isBeginner && !canAccess(problem.difficulty)) return;
     const requestId = ++problemLoadRequest.current;
@@ -550,7 +550,6 @@ export default function PracticePage() {
 
         {/* Problem Browser */}
         <ProblemBrowser
-          problems={problems}
           progress={progress}
           isBeginner={isBeginner}
           unlockedDifficulties={unlockedDifficulties}

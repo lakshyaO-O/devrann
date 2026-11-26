@@ -211,6 +211,19 @@ export function ProblemDescription({
                 {problem.description}
               </div>
 
+              {problem.sources?.map((source) => (
+                <p key={`${source.repository}:${source.path}`} className="text-xs text-muted-foreground">
+                  {source.attribution}{' '}
+                  <a href={source.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
+                    {source.repository}/{source.path}
+                  </a>{' '}
+                  licensed under{' '}
+                  <a href={source.licenseUrl} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
+                    {source.license}
+                  </a>.
+                </p>
+              ))}
+
               {problem.constraints && problem.constraints.length > 0 && (
                 <div className="space-y-2">
                   <h3 className="text-xs font-medium text-foreground/70">Constraints</h3>

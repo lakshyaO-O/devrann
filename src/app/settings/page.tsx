@@ -11,7 +11,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import {
-  User, Palette, Bell, Shield, LogOut, Trash2, Save, Loader2, Moon, Sun, Volume2, VolumeX, Accessibility, Code2, CheckCircle2, XCircle,
+  User, Palette, Bell, Shield, LogOut, Save, Loader2, Moon, Sun, Volume2, VolumeX, Accessibility, Code2, CheckCircle2, XCircle, Download,
 } from 'lucide-react';
 import { useUser } from '@/firebase/auth/use-user';
 import { useDoc } from '@/firebase/firestore/use-doc';
@@ -42,6 +42,7 @@ export default function SettingsPage() {
   const [bio, setBio] = useState('');
   const [interests, setInterests] = useState('');
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [usernameError, setUsernameError] = useState('');
   const [usernameSuccess, setUsernameSuccess] = useState('');
   const { available, checking: checkingUsername, checkUsername } = useUsernameAvailability();
@@ -211,8 +212,72 @@ export default function SettingsPage() {
   };
 
   const handleLogout = async () => {
-    if (auth) await auth.signOut();
-    window.location.href = '/';
+    try {
+      if (auth) await auth.signOut();
+      window.location.href = '/';
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Unable to sign out',
+        description: error instanceof Error ? error.message : 'Please try again.',
+      });
+    }
+  };
+
+  const handleExportData = async () => {
+    if (!user || exporting) return;
+    setExporting(true);
+    try {
+      const requestExport = async (url: string) => {
+        const token = await user.getIdToken();
+        const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || 'Unable to export account data.');
+        return result as Record<string, any>;
+      };
+
+      const firstPage = await requestExport('/api/auth/export-data');
+      const collections: Record<string, Array<{ id: string; data: unknown }>> = {};
+      for (const collectionName of firstPage.collections as string[]) {
+        const records: Array<{ id: string; data: unknown }> = [];
+        let cursor: string | null = null;
+        do {
+          const query = new URLSearchParams({ collection: collectionName });
+          if (cursor) query.set('cursor', cursor);
+          const page = await requestExport(`/api/auth/export-data?${query.toString()}`);
+          records.push(...page.records);
+          cursor = page.nextCursor;
+        } while (cursor);
+        collections[collectionName] = records;
+      }
+
+      const exportData = {
+        formatVersion: 1,
+        exportedAt: firstPage.exportedAt,
+        profile: firstPage.profile,
+        publicProfile: firstPage.publicProfile,
+        collections,
+      };
+      const downloadUrl = URL.createObjectURL(new Blob([JSON.stringify(exportData, null, 2)], {
+        type: 'application/json',
+      }));
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `devrann-account-data-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+      toast({ title: 'Account data exported', description: 'Your private account data was downloaded to this device.' });
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Unable to export account data',
+        description: error instanceof Error ? error.message : 'Please try again.',
+      });
+    } finally {
+      setExporting(false);
+    }
   };
 
   const savePreferences = async () => {
@@ -261,6 +326,20 @@ export default function SettingsPage() {
 
   const initials = (user?.displayName || user?.email || '??')
     .split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
+  const savedProfile = (profile || {}) as Record<string, any>;
+  const savedNotifications = savedProfile.notificationPreferences || {};
+  const editorPreferencesDirty = editorTheme !== (savedProfile.editorTheme || 'vs-dark')
+    || editorFontSize !== (savedProfile.editorFontSize || 14)
+    || preferredLang !== (savedProfile.preferredLanguage || 'javascript');
+  const notificationPreferencesDirty = notificationPreferences.inAppEnabled
+      !== (typeof savedNotifications.inAppEnabled === 'boolean' ? savedNotifications.inAppEnabled : true)
+    || notificationPreferences.soundEnabled
+      !== (typeof savedNotifications.soundEnabled === 'boolean' ? savedNotifications.soundEnabled : true);
+  const connectedProviders = [...new Set(user?.providerData.map((provider) =>
+    provider.providerId === 'password' ? 'Email and password'
+      : provider.providerId === 'google.com' ? 'Google'
+        : provider.providerId,
+  ) ?? [])];
 
   return (
       <div className="space-y-8 max-w-3xl">
@@ -272,7 +351,7 @@ export default function SettingsPage() {
         </div>
 
         <Tabs defaultValue="profile" className="space-y-6">
-          <TabsList className="bg-muted/50 flex-wrap">
+          <TabsList aria-label="Settings categories" className="bg-muted/50 h-auto w-full justify-start flex-nowrap overflow-x-auto sm:flex-wrap gap-1">
             <TabsTrigger value="profile" className="gap-2"><User className="w-4 h-4" /> Profile</TabsTrigger>
             <TabsTrigger value="appearance" className="gap-2"><Palette className="w-4 h-4" /> Appearance</TabsTrigger>
             <TabsTrigger value="editor" className="gap-2"><Code2 className="w-4 h-4" /> Editor</TabsTrigger>
@@ -287,7 +366,7 @@ export default function SettingsPage() {
               <CardContent className="p-6 space-y-6">
                 <div className="flex items-center gap-4">
                   <Avatar className="h-16 w-16 border-2 border-primary/30">
-                    <AvatarImage src={user?.photoURL || ''} />
+                    <AvatarImage src={user?.photoURL || ''} alt="Profile avatar" />
                     <AvatarFallback className="bg-primary/10 text-primary font-bold">{initials}</AvatarFallback>
                   </Avatar>
                   <div>
@@ -365,21 +444,21 @@ export default function SettingsPage() {
                   onToggle={handleProfileVisibilityChange}
                 />
                 {([
-                  ['showRating', 'Show rating'],
-                  ['showStats', 'Show statistics'],
-                  ['showActivity', 'Show activity'],
-                  ['showAchievements', 'Show achievements'],
-                  ['showFriends', 'Show friends'],
-                  ['showSocialLinks', 'Show social links'],
-                  ['showMatchHistory', 'Show match history'],
-                  ['showTopicMastery', 'Show topic mastery'],
-                  ['showBadges', 'Show badges'],
-                ] as const).map(([key, label]) => (
+                  ['showRating', 'Show rating', 'Allow your current rating to appear on your public profile.'],
+                  ['showStats', 'Show statistics', 'Show verified practice totals and problem breakdowns.'],
+                  ['showActivity', 'Show activity', 'Show your coding activity calendar.'],
+                  ['showAchievements', 'Show achievements', 'Display achievements recorded for your account.'],
+                  ['showFriends', 'Show friends', 'Allow your connections section to be visible.'],
+                  ['showSocialLinks', 'Show social links', 'Display social links you have added to your profile.'],
+                  ['showMatchHistory', 'Show match history', 'Display recent completed arena matches.'],
+                  ['showTopicMastery', 'Show topic mastery', 'Show topic performance derived from solved problems.'],
+                  ['showBadges', 'Show badges', 'Display earned badges associated with your account.'],
+                ] as const).map(([key, label, description]) => (
                   <SettingRow
                     key={key}
                     icon={<Shield className="w-4 h-4 text-primary" />}
                     label={label}
-                    description="Allow this section on your public profile."
+                    description={description}
                     checked={privacySettings[key] === true}
                     onToggle={(checked) => updatePrivacySetting(key, checked)}
                   />
@@ -456,10 +535,15 @@ export default function SettingsPage() {
                   </div>
                 </div>
                 <div className="flex justify-end">
-                  <Button onClick={() => void savePreferences()} disabled={saving} className="gap-2">
+                  <div className="flex items-center gap-3">
+                    <span aria-live="polite" className="text-xs text-muted-foreground">
+                      {editorPreferencesDirty ? 'Unsaved changes' : 'All changes saved'}
+                    </span>
+                    <Button onClick={() => void savePreferences()} disabled={saving || !editorPreferencesDirty} className="gap-2">
                     {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                     {saving ? 'Saving...' : 'Save editor settings'}
-                  </Button>
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -469,23 +553,28 @@ export default function SettingsPage() {
               <CardContent className="p-6 space-y-6">
                 <SettingRow
                   icon={notificationPreferences.inAppEnabled ? <Bell className="w-4 h-4 text-primary" /> : <Bell className="w-4 h-4 text-muted-foreground" />}
-                  label="Push Notifications"
-                  description="Receive in-app notifications for matches, friend requests, and events."
+                  label="In-app notifications"
+                  description="Allow supported friend and room invitations to create in-app alerts."
                   checked={notificationPreferences.inAppEnabled}
                   onToggle={(inAppEnabled) => setNotificationPreferences((current) => ({ ...current, inAppEnabled }))}
                 />
                 <SettingRow
                   icon={notificationPreferences.soundEnabled ? <Volume2 className="w-4 h-4 text-primary" /> : <VolumeX className="w-4 h-4 text-muted-foreground" />}
                   label="Sound Effects"
-                  description="Play sounds for incoming matches, messages, and alerts."
+                  description="Play a brief sound when a new in-app notification arrives in this browser."
                   checked={notificationPreferences.soundEnabled}
                   onToggle={(soundEnabled) => setNotificationPreferences((current) => ({ ...current, soundEnabled }))}
                 />
                 <div className="flex justify-end">
-                  <Button onClick={() => void savePreferences()} disabled={saving} className="gap-2">
+                  <div className="flex items-center gap-3">
+                    <span aria-live="polite" className="text-xs text-muted-foreground">
+                      {notificationPreferencesDirty ? 'Unsaved changes' : 'All changes saved'}
+                    </span>
+                    <Button onClick={() => void savePreferences()} disabled={saving || !notificationPreferencesDirty} className="gap-2">
                     {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                     {saving ? 'Saving...' : 'Save notification settings'}
-                  </Button>
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -500,18 +589,24 @@ export default function SettingsPage() {
           <TabsContent value="account">
             <Card className="bg-card/50 border-border">
               <CardContent className="p-6 space-y-6">
-                <div className="p-4 rounded-lg border border-border flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-bold">Account Status</p>
-                    <p className="text-xs text-muted-foreground">Your account is in good standing.</p>
-                  </div>
-                  <span className="text-xs px-2 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">Active</span>
-                </div>
                 <div className="p-4 rounded-lg border border-border">
-                  <p className="text-sm font-bold mb-1">Authentication Provider</p>
-                  <p className="text-xs text-muted-foreground">{user?.providerData?.[0]?.providerId === 'google.com' ? 'Google' : 'Email / Password'}</p>
+                  <p className="text-sm font-bold mb-1">Connected sign-in methods</p>
+                  <p className="text-xs text-muted-foreground">
+                    {connectedProviders.length ? connectedProviders.join(', ') : 'No provider information available.'}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-2">Account created {user?.metadata.creationTime ? new Date(user.metadata.creationTime).toLocaleDateString() : 'date unavailable'}</p>
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  Account removal is not self-service yet. Contact support before requesting deletion; deleting only your sign-in would leave account data behind.
+                </p>
                 <Separator />
+                <Button variant="outline" className="w-full justify-start gap-2" onClick={() => void handleExportData()} disabled={exporting}>
+                  {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                  {exporting ? 'Preparing your export...' : 'Download my account data'}
+                </Button>
+                <p className="text-xs text-muted-foreground">
+                  The JSON export includes your profile, saved work, submissions, and other account-owned records. Treat the downloaded file as private.
+                </p>
                 <Button variant="outline" className="w-full justify-start gap-2" onClick={handleLogout}>
                   <LogOut className="w-4 h-4" /> Log Out
                 </Button>
@@ -534,9 +629,12 @@ function ThemeOption({
 }) {
   return (
     <button
+      type="button"
+      aria-pressed={current === value}
       onClick={() => onSelect(value)}
       className={cn(
         'flex flex-col items-center gap-3 p-4 rounded-xl border-2 transition-all',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
         current === value ? 'border-primary bg-primary/5' : 'border-border hover:border-muted-foreground/30'
       )}
     >
@@ -558,7 +656,7 @@ function SettingRow({ icon, label, description, checked, onToggle }: { icon: Rea
           <p className="text-xs text-muted-foreground">{description}</p>
         </div>
       </div>
-      <Switch checked={checked} onCheckedChange={onToggle} />
+      <Switch checked={checked} onCheckedChange={onToggle} aria-label={label} />
     </div>
   );
 }

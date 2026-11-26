@@ -4,7 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Lock, CheckCircle2, Code2, BookmarkCheck, ChevronRight, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { PracticeProblemDocument } from '@/types';
+import type { PracticeProblemSummary } from '@/types';
 
 const difficultyColors: Record<string, string> = {
   Easy: 'text-emerald-400',
@@ -18,7 +18,7 @@ const difficultyBg: Record<string, string> = {
 };
 
 interface ProblemCardProps {
-  problem: PracticeProblemDocument;
+  problem: PracticeProblemSummary;
   solved: boolean;
   bookmarked: boolean;
   locked: boolean;

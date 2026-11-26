@@ -11,6 +11,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { saveCode as saveToFirebase } from '@/services/practice';
+import '@/lib/monaco-loader';
+
+const EDITOR_LOAD_TIMEOUT_MS = 15000;
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false, loading: () => (
   <div className="flex items-center justify-center h-full bg-[#011627]">
@@ -67,6 +70,7 @@ export function CodeEditor({
   const [code, setCode] = useState(initialCode);
   const [currentLang, setCurrentLang] = useState<CodingLanguage>(language);
   const [mounted, setMounted] = useState(false);
+  const [editorState, setEditorState] = useState<'loading' | 'ready' | 'error'>('loading');
   const editorRef = useRef<any>(null);
   const [isModified, setIsModified] = useState(false);
   const [currentTheme, setCurrentTheme] = useState<EditorTheme>(themeProp || 'vs-dark');
@@ -95,6 +99,12 @@ export function CodeEditor({
   useEffect(() => {
     setCurrentLang(language);
   }, [language]);
+
+  useEffect(() => {
+    if (!mounted || editorState !== 'loading') return;
+    const timer = setTimeout(() => setEditorState('error'), EDITOR_LOAD_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [mounted, editorState]);
 
   const handleEditorDidMount = (editor: any, monaco: any) => {
     editorRef.current = editor;
@@ -250,13 +260,29 @@ export function CodeEditor({
         </div>
       </div>
       <div className="flex-1" style={{ height }}>
-        {mounted ? (
+        {mounted && editorState === 'error' ? (
+          <div className="flex h-full flex-col bg-[#011627]">
+            <p className="border-b border-border/40 px-3 py-1.5 text-[11px] text-amber-400">
+              Code editor could not load. Falling back to a plain text editor.
+            </p>
+            <textarea
+              value={code}
+              onChange={(event) => handleChange(event.target.value)}
+              spellCheck={false}
+              aria-label="Code editor"
+              className="flex-1 resize-none bg-transparent p-3 font-mono text-sm text-foreground outline-none"
+            />
+          </div>
+        ) : mounted ? (
           <MonacoEditor
             language={LANGUAGE_MAP[currentLang]}
             value={code}
             theme={monacoTheme}
             onChange={handleChange}
-            onMount={handleEditorDidMount}
+            onMount={(editor, monaco) => {
+              handleEditorDidMount(editor, monaco);
+              setEditorState('ready');
+            }}
             options={{
               fontSize,
               fontFamily: "'Source Code Pro', 'Fira Code', monospace",

@@ -8,7 +8,7 @@ import { Play } from 'lucide-react';
 import { StatsDashboard } from '@/components/practice/StatsDashboard';
 import { TopicMasteryGrid } from '@/components/practice/TopicMasteryGrid';
 import { cn } from '@/lib/utils';
-import type { PracticeProblemDocument } from '@/types';
+import type { PracticeProblemSummary } from '@/types';
 
 interface TopicMasteryEntry {
   topic: string;
@@ -26,9 +26,9 @@ interface PracticeDashboardProps {
   totalXp: number;
   accuracy: number;
   topicMastery: TopicMasteryEntry[];
-  recommendations: PracticeProblemDocument[];
+  recommendations: PracticeProblemSummary[];
   loading: boolean;
-  onStartProblem: (p: PracticeProblemDocument | null) => void;
+  onStartProblem: (p: PracticeProblemSummary | null) => void;
   onTopicClick: (topic: string) => void;
 }
 

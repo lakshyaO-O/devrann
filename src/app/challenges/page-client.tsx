@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Shell } from '@/components/layout/Shell';
 import { Card, CardContent } from '@/components/ui/card';
@@ -10,8 +10,8 @@ import { Target, Flame, Timer, Loader2, AlertCircle, ChevronRight } from 'lucide
 import { collection, documentId, query, where } from 'firebase/firestore';
 import { useCollection } from '@/firebase/firestore/use-collection';
 import { useFirestore } from '@/firebase/provider';
-import { usePracticeProblems } from '@/hooks/use-practice-problems';
 import { EmptyState } from '@/components/premium/EmptyState';
+import { fetchProblem } from '@/services/practice';
 
 interface DailyChallengeConfig {
   date: string;
@@ -43,10 +43,6 @@ export default function ChallengesPage() {
   const {
     data: challengeDocs, loading: challengesLoading, error: challengesError, retry: retryChallenges,
   } = useCollection(challengeQuery);
-  const {
-    problems, loading: problemsLoading, error: problemsError, retry: retryProblems,
-  } = usePracticeProblems();
-
   const dailyDoc = challengeDocs?.find((item) => item.id === 'daily');
   const weeklyDoc = challengeDocs?.find((item) => item.id === 'weekly');
   const today = new Date().toISOString().slice(0, 10);
@@ -56,10 +52,45 @@ export default function ChallengesPage() {
     && Array.isArray(weeklyDoc.problemIds)
     ? weeklyDoc as WeeklyChallengeConfig
     : null;
-  const problemById = useMemo(
-    () => new Map(problems.map((problem) => [problem.id, problem])),
-    [problems],
+  const challengeIds = useMemo(
+    () => [...new Set([
+      ...(daily ? [daily.problemId] : []),
+      ...(weekly?.problemIds ?? []),
+    ])],
+    [daily, weekly],
   );
+  const [problemById, setProblemById] = useState<Map<string, { id: string; title: string; difficulty: string; category?: string }>>(new Map());
+  const [problemsLoading, setProblemsLoading] = useState(false);
+  const [problemsError, setProblemsError] = useState<Error | null>(null);
+  const [problemRetryToken, setProblemRetryToken] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    if (challengeIds.length === 0) {
+      setProblemById(new Map());
+      setProblemsError(null);
+      setProblemsLoading(false);
+      return () => { active = false; };
+    }
+
+    setProblemsLoading(true);
+    setProblemsError(null);
+    Promise.all(challengeIds.map(async (problemId) => [problemId, await fetchProblem(problemId)] as const))
+      .then((entries) => {
+        if (!active) return;
+        setProblemById(new Map(entries.flatMap(([problemId, problem]) =>
+          problem ? [[problemId, problem] as const] : [],
+        )));
+      })
+      .catch((cause) => {
+        if (active) setProblemsError(cause instanceof Error ? cause : new Error('Challenge problems are unavailable.'));
+      })
+      .finally(() => {
+        if (active) setProblemsLoading(false);
+      });
+
+    return () => { active = false; };
+  }, [challengeIds, problemRetryToken]);
 
   if (challengesLoading || problemsLoading) {
     return (
@@ -85,7 +116,7 @@ export default function ChallengesPage() {
             variant="outline"
             onClick={() => {
               if (challengesError) retryChallenges();
-              if (problemsError) retryProblems();
+              if (problemsError) setProblemRetryToken((token) => token + 1);
             }}
           >
             Retry

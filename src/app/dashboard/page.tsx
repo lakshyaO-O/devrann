@@ -23,6 +23,8 @@ import { CompleteRoadmap } from '@/components/learning/CompleteRoadmap';
 import type { LessonData } from '@/data/lessons';
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 import { celebrate } from '@/components/gamification/CelebrationOverlay';
+import { useDailyChallenge } from '@/hooks/use-daily-challenge';
+import { fetchProblem } from '@/services/practice';
 
 const dailyMotivations = [
   '"Every expert was once a beginner." — Keep going!',
@@ -35,25 +37,30 @@ const dailyMotivations = [
   '"First, solve the problem. Then, write the code."',
 ];
 
-const dailyChallenges = [
-  { title: 'Print your name', desc: 'Write code to display your name on screen', xp: 25 },
-  { title: 'Store your age', desc: 'Create a variable with your age and print it', xp: 30 },
-  { title: 'Say hello', desc: 'Ask for a name and say hello to them', xp: 35 },
-  { title: 'Even or odd', desc: 'Check if a number is even or odd', xp: 40 },
-  { title: 'Count to 10', desc: 'Use a loop to count from 1 to 10', xp: 45 },
-];
-
 export default function BeginnerDashboard() {
   const { user, loading: authLoading } = useUser();
   const db = useFirestore();
-  const { state, incrementStreak, updateBeginnerState } = useAppStore();
+  const { state, updateBeginnerState } = useAppStore();
   const { beginner, firebaseProgressLoaded } = state;
 
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [motivation] = useState(() => dailyMotivations[Math.floor(Math.random() * dailyMotivations.length)]);
-  const [dailyChallenge] = useState(() => dailyChallenges[Math.floor(Math.random() * dailyChallenges.length)]);
+  const { daily, loading: dailyLoading } = useDailyChallenge(user?.uid || null);
+  const [dailyChallengeTitle, setDailyChallengeTitle] = useState<string | null>(null);
   const userProfileQuery = user && db ? `users/${user.uid}` : null;
   const { data: profile } = useDoc(userProfileQuery);
+
+  useEffect(() => {
+    let active = true;
+    if (!daily?.problemId) {
+      setDailyChallengeTitle(null);
+      return () => { active = false; };
+    }
+    fetchProblem(daily.problemId)
+      .then((problem) => { if (active) setDailyChallengeTitle(problem?.title ?? null); })
+      .catch(() => { if (active) setDailyChallengeTitle(null); });
+    return () => { active = false; };
+  }, [daily?.problemId]);
 
   useEffect(() => {
     if (firebaseProgressLoaded && !authLoading) {
@@ -67,12 +74,6 @@ export default function BeginnerDashboard() {
       }
     }
   }, [firebaseProgressLoaded, authLoading, beginner.hasCompletedOnboarding, profile?.onboardingCompleted, updateBeginnerState]);
-
-  useEffect(() => {
-    if (firebaseProgressLoaded && user) {
-      incrementStreak();
-    }
-  }, [firebaseProgressLoaded, user, incrementStreak]);
 
   const handleCompleteOnboarding = () => {
     setShowOnboarding(false);
@@ -290,14 +291,29 @@ export default function BeginnerDashboard() {
                       <Code2 className="w-6 h-6 text-yellow-400" />
                     </div>
                     <div className="flex-1">
-                      <h4 className="font-bold text-sm">{dailyChallenge.title}</h4>
-                      <p className="text-xs text-muted-foreground">{dailyChallenge.desc}</p>
+                      {dailyLoading ? (
+                        <p className="text-xs text-muted-foreground">Loading today&apos;s challenge...</p>
+                      ) : daily ? (
+                        <>
+                          <h4 className="font-bold text-sm">{dailyChallengeTitle || 'Today\'s challenge'}</h4>
+                          <p className="text-xs text-muted-foreground">
+                            {dailyChallengeTitle ? 'Solve it to earn the bonus.' : 'Open the challenge to view the problem.'}
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <h4 className="font-bold text-sm">No daily challenge configured</h4>
+                          <p className="text-xs text-muted-foreground">
+                            A new verified challenge will appear once an admin schedules one.
+                          </p>
+                        </>
+                      )}
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="text-primary font-bold text-sm">+{dailyChallenge.xp} XP</p>
+                      {daily && <p className="text-primary font-bold text-sm">+{daily.xpBonus} XP</p>}
                       <Button variant="outline" size="sm" className="mt-1 text-xs gap-1"
-                        onClick={() => window.location.href = '/practice'}>
-                        Try <ArrowRight className="w-3 h-3" />
+                        onClick={() => window.location.href = daily ? `/practice?problem=${encodeURIComponent(daily.problemId)}` : '/practice'}>
+                        {daily ? 'Try' : 'Browse'} <ArrowRight className="w-3 h-3" />
                       </Button>
                     </div>
                   </div>

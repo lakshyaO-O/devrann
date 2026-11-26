@@ -16,7 +16,7 @@ import type { LessonData } from '@/data/lessons';
 
 interface LessonViewerProps {
   lesson: LessonData;
-  onComplete: (lessonId: number) => void;
+  onComplete: (lessonId: number, answers: number[]) => Promise<void> | void;
   onBack: () => void;
   onNextLesson?: () => void;
   isLastLesson: boolean;
@@ -58,6 +58,9 @@ export function LessonViewer({ lesson, onComplete, onBack, onNextLesson, isLastL
   const [quizPassed, setQuizPassed] = useState(false);
   const [challengePassed, setChallengePassed] = useState(false);
   const [xpAwarded, setXpAwarded] = useState(false);
+  const [quizAnswers, setQuizAnswers] = useState<number[]>([]);
+  const [finishing, setFinishing] = useState(false);
+  const [completionError, setCompletionError] = useState('');
   const [showCompletion, setShowCompletion] = useState(false);
   const [markedAsRead, setMarkedAsRead] = useState(false);
 
@@ -67,6 +70,9 @@ export function LessonViewer({ lesson, onComplete, onBack, onNextLesson, isLastL
     setQuizPassed(false);
     setChallengePassed(false);
     setXpAwarded(false);
+    setQuizAnswers([]);
+    setFinishing(false);
+    setCompletionError('');
     setShowCompletion(false);
     setMarkedAsRead(false);
   }, [lesson.id]);
@@ -86,19 +92,29 @@ export function LessonViewer({ lesson, onComplete, onBack, onNextLesson, isLastL
     setMarkedAsRead(true);
   };
 
-  const handleQuizComplete = (passed: boolean) => {
-    if (passed) setQuizPassed(true);
+  const handleQuizComplete = (passed: boolean, _score: number, answers: number[]) => {
+    if (passed) {
+      setQuizPassed(true);
+      setQuizAnswers(answers);
+    }
   };
 
   const handleChallengeSuccess = () => {
     setChallengePassed(true);
   };
 
-  const handleFinish = () => {
-    if (!xpAwarded) {
+  const handleFinish = async () => {
+    if (xpAwarded || finishing) return;
+    setFinishing(true);
+    setCompletionError('');
+    try {
+      await onComplete(lesson.id, quizAnswers);
       setXpAwarded(true);
       setShowCompletion(true);
-      onComplete(lesson.id);
+    } catch (error) {
+      setCompletionError(error instanceof Error ? error.message : 'Unable to confirm lesson rewards.');
+    } finally {
+      setFinishing(false);
     }
   };
 
@@ -498,12 +514,14 @@ export function LessonViewer({ lesson, onComplete, onBack, onNextLesson, isLastL
 
                 {!xpAwarded && ([readingComplete, quizPassed, challengePassed].every(Boolean)) && (
                   <button
-                    onClick={handleFinish}
+                    onClick={() => void handleFinish()}
+                    disabled={finishing}
                     className="w-full py-3 rounded-xl bg-primary text-primary-foreground font-bold text-sm hover:bg-primary/90 transition-all flex items-center justify-center gap-2"
                   >
-                    <Sparkles className="w-5 h-5" /> Claim Rewards (+{lesson.xpReward} XP)
+                    <Sparkles className="w-5 h-5" /> {finishing ? 'Confirming reward…' : `Claim Rewards (+${lesson.xpReward} XP)`}
                   </button>
                 )}
+                {completionError && <p role="alert" className="text-sm text-destructive">{completionError}</p>}
 
                 {xpAwarded && (
                   <div className="flex justify-center gap-3">

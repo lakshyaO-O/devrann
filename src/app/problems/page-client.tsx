@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useMemo, useState } from 'react';
 import { Shell } from '@/components/layout/Shell';
@@ -10,6 +10,7 @@ import {
   Search,
   SearchX,
   ChevronRight,
+  ChevronLeft,
   Code2,
   AlertCircle,
   Loader2,
@@ -19,12 +20,22 @@ import {
 import { EmptyState } from '@/components/premium/EmptyState';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
-import { usePracticeProblems, useUserProgress } from '@/hooks/use-practice-problems';
+import { useProblemCatalogPage, useProblemStats, useUserProgress } from '@/hooks/use-practice-problems';
 import { useUser } from '@/firebase/auth/use-user';
-import type { Difficulty, ProblemTopic } from '@/types';
+import type { Difficulty } from '@/types';
+import type { ProblemCatalogQuery } from '@/services/practice';
+import { ALL_TOPICS } from '@/features/practice/components/ProblemFilters';
+
+type SortOption = NonNullable<ProblemCatalogQuery['sort']>;
 
 const DIFFICULTIES: Array<'All' | Difficulty> = ['All', 'Easy', 'Medium', 'Hard'];
-const PROGRESS_FILTERS = ['All', 'Unsolved', 'Solved', 'Saved'] as const;
+const PROGRESS_FILTERS = ['All', 'Unsolved', 'Attempted', 'Solved', 'Saved'] as const;
+const SORT_OPTIONS: Array<{ value: SortOption; label: string }> = [
+  { value: 'title', label: 'Title (Aâ€“Z)' },
+  { value: 'difficulty', label: 'Difficulty' },
+  { value: 'points-asc', label: 'XP (low to high)' },
+  { value: 'points-desc', label: 'XP (high to low)' },
+];
 type ProgressFilter = typeof PROGRESS_FILTERS[number];
 
 export default function ProblemsPage() {
@@ -33,34 +44,32 @@ export default function ProblemsPage() {
   const [difficulty, setDifficulty] = useState<'All' | Difficulty>('All');
   const [topic, setTopic] = useState('All');
   const [progressFilter, setProgressFilter] = useState<ProgressFilter>('All');
-  const { problems, loading, error, retry } = usePracticeProblems();
+  const [cursorStack, setCursorStack] = useState<Array<string | null>>([null]);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [sort, setSort] = useState<SortOption>('title');
+  const {
+    problems, nextCursor, hasMore, loading, error, retry,
+  } = useProblemCatalogPage({
+    search,
+    difficulty: difficulty === 'All' ? '' : difficulty,
+    topic: topic === 'All' ? '' : topic,
+    sort,
+    status: progressFilter === 'Solved' ? 'solved'
+      : progressFilter === 'Unsolved' ? 'unsolved'
+      : progressFilter === 'Attempted' ? 'attempted'
+      : progressFilter === 'Saved' ? 'bookmarked'
+      : 'all',
+    cursor: cursorStack[pageIndex] ?? null,
+  });
   const { progress, loading: progressLoading } = useUserProgress(user?.uid || null);
+  const { stats: catalogStats, loading: statsLoading } = useProblemStats();
 
   const topics = useMemo(
-    () => [...new Set(problems.flatMap((problem) => problem.topics || []))].sort(),
+    () => [...new Set([...ALL_TOPICS, ...problems.flatMap((problem) => problem.topics || [])])].sort(),
     [problems],
   );
 
-  const filteredProblems = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return problems.filter((problem) => {
-      const matchesSearch = !term || [
-        problem.title,
-        problem.category,
-        ...(problem.topics || []),
-      ].some((value) => value?.toLowerCase().includes(term));
-      const matchesDifficulty = difficulty === 'All' || problem.difficulty === difficulty;
-      const matchesTopic = topic === 'All'
-        || problem.topics?.includes(topic as ProblemTopic)
-        || problem.category === topic;
-      const state = progress[problem.id];
-      const matchesProgress = progressFilter === 'All'
-        || (progressFilter === 'Solved' && state?.solved)
-        || (progressFilter === 'Saved' && state?.bookmarked)
-        || (progressFilter === 'Unsolved' && !state?.solved);
-      return matchesSearch && matchesDifficulty && matchesTopic && matchesProgress;
-    });
-  }, [problems, search, difficulty, topic, progress, progressFilter]);
+  const filteredProblems = problems;
 
   const counts = useMemo(() => ({
     Easy: problems.filter((problem) => problem.difficulty === 'Easy').length,
@@ -68,11 +77,18 @@ export default function ProblemsPage() {
     Hard: problems.filter((problem) => problem.difficulty === 'Hard').length,
   }), [problems]);
 
+  const resetPage = () => {
+    setCursorStack([null]);
+    setPageIndex(0);
+  };
+
   const resetFilters = () => {
     setSearch('');
     setDifficulty('All');
     setTopic('All');
     setProgressFilter('All');
+    setSort('title');
+    resetPage();
   };
 
   return (
@@ -82,9 +98,7 @@ export default function ProblemsPage() {
           <div className="space-y-2">
             <h1 className="text-4xl font-headline font-bold text-foreground">Problem Library</h1>
             <p className="text-muted-foreground">
-              {problems.length
-                ? `${problems.length} published problems · ${problems.filter((problem) => progress[problem.id]?.solved).length} solved by you`
-                : 'A focused catalog of algorithm practice, with real judge results and learning notes.'}
+              Search and filter the published catalog. Results are loaded in pages from the server.
             </p>
           </div>
           <Button asChild variant="outline">
@@ -93,9 +107,14 @@ export default function ProblemsPage() {
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <DifficultyCard label="Easy" color="text-emerald-400" bgColor="bg-emerald-500/10" count={counts.Easy} />
-          <DifficultyCard label="Medium" color="text-primary" bgColor="bg-primary/10" count={counts.Medium} />
-          <DifficultyCard label="Hard" color="text-destructive" bgColor="bg-destructive/10" count={counts.Hard} />
+          <DifficultyCard label="Published total" color="text-emerald-400" bgColor="bg-emerald-500/10" count={catalogStats?.total ?? 0} />
+          <DifficultyCard label="Easy" color="text-primary" bgColor="bg-primary/10" count={catalogStats?.difficulty.Easy ?? 0} />
+          <DifficultyCard label="Medium" color="text-destructive" bgColor="bg-destructive/10" count={catalogStats?.difficulty.Medium ?? 0} />
+        </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <DifficultyCard label="Hard" color="text-emerald-400" bgColor="bg-emerald-500/10" count={catalogStats?.difficulty.Hard ?? 0} />
+          <DifficultyCard label="On this page" color="text-primary" bgColor="bg-primary/10" count={problems.length} />
+          <DifficultyCard label="Catalog stats" color="text-destructive" bgColor="bg-destructive/10" count={statsLoading ? 0 : catalogStats?.topics ? Object.keys(catalogStats.topics).length : 0} />
         </div>
 
         <Card className="border-border bg-card/50">
@@ -105,16 +124,16 @@ export default function ProblemsPage() {
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   aria-label="Search problems"
-                  placeholder="Search title, topic, or category..."
+                  placeholder="Title prefix or ID (use id:...)"
                   className="border-border bg-muted/50 pl-10"
                   value={search}
-                  onChange={(event) => setSearch(event.target.value)}
+                  onChange={(event) => { setSearch(event.target.value); resetPage(); }}
                 />
               </div>
               <select
                 aria-label="Filter by topic"
                 value={topic}
-                onChange={(event) => setTopic(event.target.value)}
+                onChange={(event) => { setTopic(event.target.value); resetPage(); }}
                 className="h-10 rounded-md border border-border bg-background px-3 text-sm"
               >
                 <option value="All">All topics</option>
@@ -128,7 +147,7 @@ export default function ProblemsPage() {
                   key={level}
                   variant={difficulty === level ? 'default' : 'outline'}
                   size="sm"
-                  onClick={() => setDifficulty(level)}
+                  onClick={() => { setDifficulty(level); resetPage(); }}
                 >
                   {level}
                 </Button>
@@ -139,7 +158,7 @@ export default function ProblemsPage() {
                   key={filter}
                   variant={progressFilter === filter ? 'secondary' : 'ghost'}
                   size="sm"
-                  onClick={() => setProgressFilter(filter)}
+                  onClick={() => { setProgressFilter(filter); resetPage(); }}
                 >
                   {filter === 'Solved' && <CheckCircle2 className="mr-1 h-3.5 w-3.5" />}
                   {filter === 'Saved' && <Bookmark className="mr-1 h-3.5 w-3.5" />}
@@ -147,7 +166,7 @@ export default function ProblemsPage() {
                 </Button>
               ))}
               <span className="ml-auto text-xs text-muted-foreground">
-                {filteredProblems.length} result{filteredProblems.length === 1 ? '' : 's'}
+                {filteredProblems.length} result{filteredProblems.length === 1 ? '' : 's'} on this page
               </span>
             </div>
           </CardContent>
@@ -163,20 +182,22 @@ export default function ProblemsPage() {
               <p className="mt-2 text-sm text-muted-foreground">The problem catalog is temporarily unavailable.</p>
               <Button variant="outline" className="mt-4" onClick={retry}>Retry</Button>
             </div>
-          ) : problems.length === 0 ? (
+          ) : problems.length === 0 && pageIndex === 0 && !hasMore ? (
             <EmptyState
               icon={Code2}
-              title="The catalog is being prepared"
-              description="No published problems are available yet. Once the curated starter set is imported, every problem will include examples, hints, editorials, and private judge tests."
+              title="No published problems match this query"
+              description="Try another title prefix, ID, topic, difficulty, or progress filter."
               className="py-12"
             />
           ) : filteredProblems.length === 0 ? (
             <EmptyState
               icon={SearchX}
-              title="No problems match these filters"
-              description="Try a different search, topic, difficulty, or progress filter."
-              actionLabel="Clear filters"
-              onAction={resetFilters}
+              title={problems.length ? 'No matching problems on this page' : 'No more matching problems'}
+              description={problems.length || hasMore
+                ? 'Try another progress filter or continue to the next catalog page.'
+                : 'Try a different search, topic, difficulty, or progress filter.'}
+              actionLabel={problems.length && hasMore ? undefined : 'Clear filters'}
+              onAction={problems.length && hasMore ? undefined : resetFilters}
             />
           ) : (
             <div className="overflow-x-auto">
@@ -240,6 +261,31 @@ export default function ProblemsPage() {
                   })}
                 </tbody>
               </table>
+            </div>
+          )}
+          {!loading && !error && (pageIndex > 0 || hasMore) && (
+            <div className="flex items-center justify-between border-t border-border p-3">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={pageIndex === 0 || loading}
+                onClick={() => setPageIndex((index) => Math.max(0, index - 1))}
+              >
+                <ChevronLeft className="mr-1 h-4 w-4" /> Previous
+              </Button>
+              <span className="text-xs text-muted-foreground">Page {pageIndex + 1}</span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!hasMore || !nextCursor || loading}
+                onClick={() => {
+                  if (!nextCursor) return;
+                  setCursorStack((stack) => [...stack.slice(0, pageIndex + 1), nextCursor]);
+                  setPageIndex((index) => index + 1);
+                }}
+              >
+                Next <ChevronRight className="ml-1 h-4 w-4" />
+              </Button>
             </div>
           )}
         </Card>
