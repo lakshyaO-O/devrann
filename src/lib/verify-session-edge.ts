@@ -1,4 +1,5 @@
 import { jwtVerify, createLocalJWKSet, importX509, exportJWK } from 'jose';
+import { getServerFirebaseEnvErrors } from '@/lib/firebase-env-guard';
 
 // Session-cookie verification for the Edge runtime (middleware).
 //
@@ -70,17 +71,29 @@ export async function verifySessionCookie(cookieValue: string): Promise<{ uid: s
     const decoded = decodeJwtPayload(cookieValue);
     const aud = decoded && typeof decoded.aud === 'string' ? decoded.aud : '';
     const envProjectId = getProjectIdFromEnv();
+    const guardErrors = getServerFirebaseEnvErrors({
+      NODE_ENV: process.env.NODE_ENV,
+      VERCEL_ENV: process.env.VERCEL_ENV,
+      FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID,
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+    });
 
-    if (envProjectId && aud && aud !== envProjectId) {
-      // eslint-disable-next-line no-console
-      console.error(`[verify-session] project mismatch: cookie aud=${aud} env=${envProjectId}`);
+    if (process.env.VERCEL_ENV === 'preview') {
+      if (guardErrors.some((e) => e.includes('Preview Firebase project') || e.includes('Missing Firebase project ID'))) {
+        return null;
+      }
+      const expectedProjectId = process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || '';
+      if (!expectedProjectId || !aud || aud !== expectedProjectId) {
+        return null;
+      }
+    } else if (envProjectId && aud && aud !== envProjectId) {
       return null;
     }
 
-    const projectId = envProjectId || aud;
+    const projectId = process.env.VERCEL_ENV === 'preview'
+      ? (process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || '')
+      : (envProjectId || aud);
     if (!projectId) {
-      // eslint-disable-next-line no-console
-      console.error('[verify-session] no projectId available (env unset, token unreadable)');
       return null;
     }
 
@@ -92,18 +105,7 @@ export async function verifySessionCookie(cookieValue: string): Promise<{ uid: s
 
     if (!payload.sub) return null;
     return { uid: payload.sub };
-  } catch (err: any) {
-    // eslint-disable-next-line no-console
-    console.error(
-      '[verify-session] rejected cookie:',
-      err?.name,
-      err?.code,
-      err?.message,
-      'envProjectId=',
-      getProjectIdFromEnv() || '(unset)',
-      'len=',
-      cookieValue.length
-    );
+  } catch {
     return null;
   }
 }

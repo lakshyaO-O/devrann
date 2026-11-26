@@ -3,7 +3,7 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { getFirestore, Firestore } from 'firebase/firestore';
 import { getAuth, Auth, browserLocalPersistence } from 'firebase/auth';
-import { firebaseConfig, isFirebaseConfigured } from './config';
+import { firebaseConfig, getFirebaseConfigErrors, isFirebaseConfigured, isPreviewFirebaseMisconfigured } from './config';
 import { authLog } from '@/lib/auth-debug';
 
 interface FirebaseServices {
@@ -30,8 +30,11 @@ export function initializeFirebase(): FirebaseServices {
 
   if (!isFirebaseConfigured()) {
     hasAttemptedInitialization = true;
-    if (typeof window !== 'undefined') {
-      console.warn('[Firebase] Not configured — set NEXT_PUBLIC_FIREBASE_* env vars.');
+    const errors = getFirebaseConfigErrors();
+    if (isPreviewFirebaseMisconfigured()) {
+      console.error('[Firebase] Preview environment is not safely configured for Firebase.');
+    } else if (errors.length > 0) {
+      console.warn('[Firebase] Not configured. Firebase features are disabled until configuration is complete.');
     }
     return nullServices;
   }
